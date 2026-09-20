@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "doc-ai-assistant"
+version = "0.1.0"
+description = "Citáciami podložený multi-document RAG asistent s bezpečnou abstenciou."
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+  "firecrawl-anydoc>=0.2.4,<1",
+  "langgraph>=1.0,<2",
+  "openai>=2.0,<3",
+  "prompt-toolkit>=3.0,<4",
+  "pypdf>=5.0,<7",
+  "python-dotenv>=1.0,<2",
+  "qdrant-client>=1.12,<2",
+  "rich>=13.9,<15",
+]
+
+[project.optional-dependencies]
+local-embeddings = ["sentence-transformers>=3.3,<6"]
+dev = ["pytest>=8.3,<10", "pytest-cov>=6,<8", "ruff>=0.9,<1"]
+
+[project.scripts]
+doc-assistant = "doc_assistant.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/doc_assistant"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
