@@ -11,9 +11,11 @@ Ak ani potom nevie odpoveď podložiť, radšej sa odpovede zdrží.
 - sekčne orientované chunkovanie a rekurzívne delenie na približne 1 400 znakov,
 - Qdrant s `k=5` a metadátami dokumentu, strany, sekcie, tenantu a chunku,
 - OpenAI `text-embedding-3-large` alebo lokálne `multilingual-e5-large`,
-- DeepSeek V4.1 Flash (`deepseek-flash`) pre návrh, query rewrite a fact-check,
+- DeepSeek V4.1 Flash (`deepseek-flash`) pre návrh odpovede a query rewrite,
+- Jev cez TypeSafe AI pre overenie citovaných tvrdení a úplnosti odpovede,
 - OpenAI GPT-5.6 Terra s natívnym `web_search` pre webový fallback,
-- LangGraph workflow s pevnou hranicou retry a bezpečnou abstenciou,
+- LangGraph workflow s pevnou hranicou retrievalu a bezpečnou abstenciou,
+- zdieľaný semafor API volaní s dvoma retry po 10 a 60 sekundách,
 - Rich chatové CLI, interaktívne mazanie dokumentov a prevádzkové metriky,
 - deterministické unit testy bez platených API volaní.
 
@@ -27,7 +29,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
-# doplňte DEEPSEEK_API_KEY a OPENAI_API_KEY
+# doplňte DEEPSEEK_API_KEY, OPENAI_API_KEY a TYPESAFE_API_KEY
 doc-assistant
 ```
 
@@ -65,6 +67,7 @@ flowchart LR
     R --> Q[(Qdrant)]
     R --> E[Embedding provider]
     G --> D[DeepSeek V4.1 Flash]
+    G --> J[Jev / TypeSafe AI]
     G -->|iba po zlyhaní interných dôkazov| W[GPT-5.6 Terra + web_search]
     I[Document ingest] --> A[AnyDoc]
     A --> C[Section-aware chunker]
@@ -80,13 +83,16 @@ Podrobné komponenty, sekvenčný, stavový a deployment diagram sú v
 
 1. Otázka sa embedduje a z Qdrantu sa načíta päť najbližších chunkov.
 2. Chunky pod minimálnym skóre sa odstránia.
-3. DeepSeek vytvorí odpoveď a smie citovať iba dodané `chunk_id`.
-4. Samostatné volanie DeepSeek posúdi faithfulness, dostatočnosť, relevanciu,
-   citation coverage a uvedie nepodložené tvrdenia.
+3. DeepSeek vytvorí odpoveď a najviac šesť atómových tvrdení s citovanými `chunk_id`.
+4. Jev posúdi vzťah každej citácie k tvrdeniu, úplnosť zoznamu tvrdení,
+   dostatočnosť a relevanciu. Chýbajúce alebo neplatné citácie sa odmietnu bez API volania.
 5. Aplikácia vypočíta confidence z retrieval skóre a verifikačných metrík.
 6. Ak gate neprejde, model vytvorí jeden doplňujúci query a retrieval sa zopakuje.
 7. Po vyčerpaní interných pokusov nasleduje voliteľný webový fallback.
 8. Bez citácií alebo pod prahom istoty sa systém odpovede zdrží.
+
+Jev overuje iba dokumentovú vetvu. Webový fallback dnes vyžaduje URL citácie,
+ale jeho tvrdenia neprechádzajú Jev kontrolou; pri citlivých použitiach ho vypnite.
 
 Confidence nie je modelom deklarované percento. Aktuálny vzorec je:
 
@@ -95,8 +101,9 @@ Confidence nie je modelom deklarované percento. Aktuálny vzorec je:
 + 0.20 × answer relevance + 0.20 × citation coverage
 ```
 
-Pred produkciou treba váhy a prah `MIN_ANSWER_CONFIDENCE=0.72` kalibrovať na
-doménovom validačnom datasete.
+Pred produkciou treba váhy, `MIN_ANSWER_CONFIDENCE=0.72` a
+`MIN_JEV_CONFIDENCE=0.80` kalibrovať na doménovom validačnom datasete,
+osobitne pre slovenské otázky.
 
 ## Spracovanie dokumentov
 
@@ -146,6 +153,14 @@ uvádza model ID `gpt-5.6-terra`; dokumentácia
 ho uvádza ako najschopnejší embedding model pre angličtinu aj iné jazyky.
 DeepSeek dokumentuje alias `deepseek-flash` vo svojom
 [changelogu](https://api-docs.deepseek.com/updates/).
+[TypeSafe dokumentácia](https://docs.typesafe.ai/sdk/python) opisuje Python SDK;
+aplikácia používa pripnuté ID `jev-1.13.0` cez `TYPESAFE_MODEL`.
+
+Volania DeepSeek, OpenAI aj TypeSafe prechádzajú zdieľaným semaforom. Pri
+dočasnom rate limite, serverovej chybe alebo výpadku spojenia nasledujú nanajvýš
+dve opakovania po 10 a 60 sekundách (prípadne dlhšie podľa `Retry-After`).
+Trvalo vyčerpaný kredit alebo kvóta sa neopakujú. Interné retry SDK sú vypnuté,
+aby nevznikali skryté pokusy navyše.
 
 Pri zmene embedding modelu použite novú Qdrant collection alebo vykonajte úplný
 reindex. Vektory s rôznou dimenziou ani geometriou sa nesmú miešať.
@@ -168,4 +183,3 @@ Embedded Qdrant je vhodný pre lokálnu CLI aplikáciu. Multi-user produkcia má
 Qdrant server s TLS, autentifikáciou, snapshotmi a samostatnými collection/tenant
 filtrami. SQLite metriky nahraďte OpenTelemetry + Prometheus/Grafana a citlivé
 prompty neposielajte do logov. API kľúče patria do secret managera, nikdy do Gitu.
-
