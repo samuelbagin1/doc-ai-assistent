@@ -1,7 +1,9 @@
-"""Kontroluje bezpečné spracovanie tvrdení a citácií z návrhu DeepSeek."""
+"""Kontroluje JSON volania GPT-5.6 Luna a bezpečné spracovanie jeho citácií."""
+
+from types import SimpleNamespace
 
 from doc_assistant.domain import Chunk, RetrievedChunk
-from doc_assistant.providers import DeepSeekRAGModel
+from doc_assistant.providers import OpenAIAnswerModel
 
 
 def evidence():
@@ -11,8 +13,8 @@ def evidence():
 
 
 def model_with_response(data):
-    """Prijme falošný JSON návrh a vráti DeepSeek adaptér bez sieťového volania."""
-    model = DeepSeekRAGModel(model="deepseek-flash", base_url="https://example.test", api_key="test")
+    """Prijme falošný JSON návrh a vráti OpenAI adaptér bez sieťového volania."""
+    model = OpenAIAnswerModel(model="gpt-5.6-luna", api_key="test")
     model._chat_json = lambda _system, _user: data
     return model
 
@@ -50,3 +52,28 @@ def test_draft_with_more_than_six_claims_fails_closed() -> None:
 
     assert draft.claims == ()
     assert draft.cited_chunk_ids == ()
+
+
+def test_answer_model_uses_luna_compatible_request() -> None:
+    """Chat požiadavka používa Lunu, nízke reasoning a JSON režim bez temperature."""
+    model = OpenAIAnswerModel(model="gpt-5.6-luna", api_key="test")
+    captured = {}
+
+    def create(**kwargs):
+        """Prijme parametre Chat Completions a vráti falošnú JSON odpoveď."""
+        captured.update(kwargs)
+        return SimpleNamespace(
+            usage=SimpleNamespace(prompt_tokens=12, completion_tokens=5),
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"query":"záruka"}'))],
+        )
+
+    model.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    result = model._chat_json('Vráť JSON s kľúčom "query".', "Otázka")
+
+    assert result == {"query": "záruka"}
+    assert captured["model"] == "gpt-5.6-luna"
+    assert captured["reasoning_effort"] == "low"
+    assert captured["response_format"] == {"type": "json_object"}
+    assert "temperature" not in captured
+    assert model.usage() == (12, 5)
