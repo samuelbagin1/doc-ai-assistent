@@ -1,3 +1,5 @@
+"""Riadi stavový tok od vyhľadania dôkazov po Jev verifikáciu, web a abstenciu."""
+
 from __future__ import annotations
 
 import time
@@ -13,10 +15,12 @@ from doc_assistant.domain import (
     Source,
     Verification,
 )
-from doc_assistant.ports import RAGModelPort, RetrieverPort, WebSearchPort
+from doc_assistant.ports import RAGModelPort, RetrieverPort, VerificationPort, WebSearchPort
 
 
 class WorkflowState(TypedDict, total=False):
+    """Medzistav grafu: otázka, dôkazy, návrh, verdikt, pokusy a výsledok."""
+
     question: str
     query: str
     evidence: list[RetrievedChunk]
@@ -28,11 +32,14 @@ class WorkflowState(TypedDict, total=False):
 
 
 class RAGWorkflow:
+    """Orchestruje retrieval, DeepSeek draft, Jev kontrolu, web a abstenciu."""
+
     def __init__(
         self,
         *,
         retriever: RetrieverPort,
         model: RAGModelPort,
+        verifier: VerificationPort,
         web_search: WebSearchPort | None,
         tenant_id: str,
         top_k: int = 5,
@@ -40,8 +47,10 @@ class RAGWorkflow:
         min_retrieval_score: float = 0.25,
         min_answer_confidence: float = 0.72,
     ) -> None:
+        """Prijme adaptéry, tenant a prahy; zostaví spustiteľný LangGraph."""
         self.retriever = retriever
         self.model = model
+        self.verifier = verifier
         self.web_search = web_search
         self.tenant_id = tenant_id
         self.top_k = top_k
@@ -51,12 +60,14 @@ class RAGWorkflow:
         self.graph = self._build_graph()
 
     def ask(self, question: str) -> AssistantAnswer:
+        """Prijme otázku, vykoná graf a vráti odpoveď s nákladmi oboch modelov."""
         cleaned = question.strip()
         if not cleaned:
             raise ValueError("Otázka nesmie byť prázdna.")
-        reset_usage = getattr(self.model, "reset_usage", None)
-        if callable(reset_usage):
-            reset_usage()
+        for provider in (self.model, self.verifier):
+            reset_usage = getattr(provider, "reset_usage", None)
+            if callable(reset_usage):
+                reset_usage()
         final = self.graph.invoke(
             {
                 "question": cleaned,
@@ -67,17 +78,19 @@ class RAGWorkflow:
             }
         )
         answer = final["answer"]
-        usage = getattr(self.model, "usage", None)
-        if callable(usage):
-            input_tokens, output_tokens = usage()
-            answer = replace(
-                answer,
-                input_tokens=answer.input_tokens + input_tokens,
-                output_tokens=answer.output_tokens + output_tokens,
-            )
+        for provider in (self.model, self.verifier):
+            usage = getattr(provider, "usage", None)
+            if callable(usage):
+                input_tokens, output_tokens = usage()
+                answer = replace(
+                    answer,
+                    input_tokens=answer.input_tokens + input_tokens,
+                    output_tokens=answer.output_tokens + output_tokens,
+                )
         return answer
 
     def _build_graph(self):
+        """Bez vstupu zostaví uzly a prechody; vráti kompilovaný LangGraph."""
         graph = StateGraph(WorkflowState)
         graph.add_node("retrieve", self._retrieve)
         graph.add_node("draft", self._draft)
@@ -106,6 +119,7 @@ class RAGWorkflow:
         return graph.compile()
 
     def _retrieve(self, state: WorkflowState) -> WorkflowState:
+        """Prijme stav, načíta top-k dôkazy a vráti aktualizovaný stav pokusu."""
         new_items = self.retriever.search(
             state["query"], k=self.top_k, tenant_id=self.tenant_id
         )
@@ -119,11 +133,13 @@ class RAGWorkflow:
         return {"evidence": ranked[: self.top_k * 2], "attempts": state["attempts"] + 1}
 
     def _draft(self, state: WorkflowState) -> WorkflowState:
+        """Prijme stav s dôkazmi a vráti návrh odpovede alebo prázdny návrh."""
         if not state["evidence"]:
             return {"draft": DraftAnswer(text="", cited_chunk_ids=())}
         return {"draft": self.model.draft(state["question"], state["evidence"])}
 
     def _verify(self, state: WorkflowState) -> WorkflowState:
+        """Prijme návrh s dôkazmi a vráti Jev verdikt alebo bezpečné odmietnutie."""
         if not state["evidence"] or not state["draft"].text:
             return {
                 "verification": Verification(
@@ -136,12 +152,13 @@ class RAGWorkflow:
                 )
             }
         return {
-            "verification": self.model.verify(
+            "verification": self.verifier.verify(
                 state["question"], state["draft"], state["evidence"]
             )
         }
 
     def _rewrite(self, state: WorkflowState) -> WorkflowState:
+        """Prijme neúspešný stav a vráti doplňujúci vyhľadávací dopyt."""
         return {
             "query": self.model.rewrite_query(
                 state["question"],
@@ -153,6 +170,7 @@ class RAGWorkflow:
     def _route_after_verification(
         self, state: WorkflowState
     ) -> Literal["answer", "retry", "web", "abstain"]:
+        """Prijme stav s verdiktom a vráti názov ďalšej povolenej vetvy grafu."""
         confidence = self._confidence(state)
         verification = state["verification"]
         if (
@@ -170,6 +188,7 @@ class RAGWorkflow:
         return "abstain"
 
     def _finalize_documents(self, state: WorkflowState) -> WorkflowState:
+        """Prijme overený stav a vráti odpoveď s citáciami z Qdrant metadát."""
         evidence = {item.chunk.id: item for item in state["evidence"]}
         sources = tuple(
             Source(
@@ -192,6 +211,7 @@ class RAGWorkflow:
         }
 
     def _web_search(self, state: WorkflowState) -> WorkflowState:
+        """Prijme neúspešný interný stav; vráti webový výsledok alebo abstenciu."""
         if self.web_search is None:
             return self._abstain(state)
         result = self.web_search.search(state["question"])
@@ -215,6 +235,7 @@ class RAGWorkflow:
     def _abstain(
         self, state: WorkflowState, reason: str | None = None
     ) -> WorkflowState:
+        """Prijme stav a voliteľný dôvod; vráti bezpečnú neodpoveď bez zdrojov."""
         verification = state.get("verification")
         detail = reason or (verification.reason if verification else "")
         return {
@@ -232,6 +253,7 @@ class RAGWorkflow:
         }
 
     def _confidence(self, state: WorkflowState) -> float:
+        """Prijme skóre retrievalu a Jev verdikt; vráti kombinovanú istotu 0–1."""
         verification = state.get("verification")
         if verification is None:
             return 0.0
@@ -247,4 +269,5 @@ class RAGWorkflow:
 
     @staticmethod
     def _elapsed_ms(state: WorkflowState) -> float:
+        """Prijme stav so štartom merania a vráti uplynulý čas v milisekundách."""
         return round((time.perf_counter() - state["started_at"]) * 1000, 1)
