@@ -24,8 +24,8 @@ from doc_assistant.domain import AssistantAnswer
 from doc_assistant.jev_verifier import JevVerifier
 from doc_assistant.observability import MetricsStore
 from doc_assistant.providers import (
-    DeepSeekRAGModel,
     LocalEmbeddings,
+    OpenAIAnswerModel,
     OpenAIEmbeddings,
     OpenAIWebSearch,
 )
@@ -249,7 +249,7 @@ class AssistantCLI:
             Panel.fit(
                 f"Dokumenty: [cyan]{len(self.documents.list())}[/cyan]\n"
                 f"Embedding: [cyan]{escape(self.settings.embedding_provider)}[/cyan]\n"
-                f"RAG model: [cyan]{escape(self.settings.deepseek_model)}[/cyan]\n"
+                f"RAG model: [cyan]{escape(self.settings.openai_answer_model)}[/cyan]\n"
                 f"Verifikátor: [cyan]{escape(self.settings.typesafe_model)}[/cyan]\n"
                 f"Web model: [cyan]{escape(self.settings.openai_web_model)}[/cyan]\n"
                 f"Web fallback: [cyan]{'zapnutý' if self.settings.web_search_enabled else 'vypnutý'}[/cyan]\n"
@@ -315,9 +315,8 @@ def build_cli(settings: Settings, console: Console) -> AssistantCLI:
         tenant_id=settings.tenant_id,
         ocr_mode=settings.ocr_mode,
     )
-    rag_model = DeepSeekRAGModel(
-        model=settings.deepseek_model,
-        base_url=settings.deepseek_base_url,
+    rag_model = OpenAIAnswerModel(
+        model=settings.openai_answer_model,
         gate=gate,
     )
     verifier = JevVerifier(
@@ -355,9 +354,7 @@ def main() -> None:
     console = Console()
     try:
         settings = Settings.load()
-        required_keys = ["DEEPSEEK_API_KEY", "TYPESAFE_API_KEY"]
-        if settings.embedding_provider == "openai" or settings.web_search_enabled:
-            required_keys.append("OPENAI_API_KEY")
+        required_keys = ["OPENAI_API_KEY", "TYPESAFE_API_KEY"]
         missing = [name for name in required_keys if not os.getenv(name)]
         if missing:
             raise RuntimeError(
