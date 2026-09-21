@@ -1,7 +1,10 @@
+"""Testuje zachovanie strán a sekcií pri delení dokumentového textu na chunky."""
+
 from doc_assistant.chunking import PageText, SectionAwareChunker
 
 
 def test_chunker_preserves_page_section_and_size() -> None:
+    """Prijme dlhú testovaciu stranu a overí počet, sekciu a limit chunkov."""
     text = "# Prvá sekcia\n\n" + ("Dôležitá veta. " * 120)
     chunker = SectionAwareChunker(chunk_size=300, chunk_overlap=30)
 
@@ -20,6 +23,7 @@ def test_chunker_preserves_page_section_and_size() -> None:
 
 
 def test_chunker_inherits_heading_on_next_page() -> None:
+    """Prijme dve strany a overí prenos názvu sekcie na druhú stranu."""
     chunks = SectionAwareChunker().split(
         [
             PageText(page=1, text="# Zmluvné podmienky\nPrvá strana."),
@@ -32,4 +36,3 @@ def test_chunker_inherits_heading_on_next_page() -> None:
 
     assert chunks[-1].section == "Zmluvné podmienky"
     assert chunks[-1].page_start == 2
-
