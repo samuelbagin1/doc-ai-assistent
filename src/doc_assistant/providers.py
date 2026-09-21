@@ -1,4 +1,4 @@
-"""Adaptéry pre embeddingy, tvorbu odpovede cez DeepSeek a webové vyhľadávanie."""
+"""Adaptéry pre embeddingy, tvorbu odpovede cez OpenAI a webové vyhľadávanie."""
 
 from __future__ import annotations
 
@@ -95,23 +95,21 @@ class LocalEmbeddings:
         )[0].tolist()
 
 
-class DeepSeekRAGModel:
-    """Používa DeepSeek iba na generovanie tvrdení a doplňujúceho dopytu."""
+class OpenAIAnswerModel:
+    """Používa GPT-5.6 Luna na návrh tvrdení a doplňujúci vyhľadávací dopyt."""
 
     def __init__(
         self,
         *,
         model: str,
-        base_url: str,
         api_key: str | None = None,
         gate: ModelCallGate | None = None,
     ) -> None:
-        """Prijme model, endpoint, kľúč a retry gate; pripraví klienta."""
+        """Prijme model, OpenAI kľúč a retry gate; pripraví klienta bez interných retries."""
         self.model = model
         self.gate = gate or ModelCallGate()
         self.client = OpenAI(
-            api_key=api_key or os.getenv("DEEPSEEK_API_KEY"),
-            base_url=base_url,
+            api_key=api_key or os.getenv("OPENAI_API_KEY"),
             max_retries=0,
         )
         self.input_tokens = 0
@@ -175,18 +173,18 @@ class DeepSeekRAGModel:
         return query or question
 
     def _chat_json(self, system: str, user: str) -> dict[str, Any]:
-        """Prijme systémový a používateľský prompt; vráti JSON z DeepSeek API."""
+        """Prijme systémový a používateľský prompt; vráti JSON z OpenAI API."""
         response = self.gate.call(
             lambda: self.client.chat.completions.create(
                 model=self.model,
-                temperature=0,
+                reasoning_effort="low",
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
             ),
-            provider="DeepSeek",
+            provider="OpenAI answer",
         )
         if response.usage:
             self.input_tokens += int(response.usage.prompt_tokens or 0)
