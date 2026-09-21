@@ -39,6 +39,10 @@ Qdrant projekt pre každý tenant.
 Text dokumentu je **nedôveryhodný údaj**, nie inštrukcia. System prompt musí jasne
 oddeliť otázku a dôkazy. Model nesmie podľa textu chunku meniť oprávnenia, volať
 nástroj ani prezradiť iný dokument. Tool selection sa povoľuje iba policy vrstvou.
+Jev porovnáva každé tvrdenie iba s chunkmi, ktoré návrh skutočne cituje; chýbajúce
+alebo cudzie `chunk_id` sa odmietne ešte pred externým volaním. Ide o kontrolu
+podloženosti, nie o náhradu autorizácie, ochrany pred prompt injection ani ľudskej
+revízie citlivých odpovedí.
 Do eval datasetu patria útoky typu „ignoruj pravidlá“, falošné citácie a pokusy
 vyžiadať dokument iného tenantu.
 
@@ -48,6 +52,8 @@ vyžiadať dokument iného tenantu.
 - samostatné service accounts a minimálne scopes,
 - rotácia, expirácia a audit použitia kľúčov,
 - outbound allowlist na konkrétne API hostnames,
+- TypeSafe AI je ďalší externý príjemca otázky, odpovede a citovaných chunkov;
+  pred použitím s citlivými dokumentmi posúďte prenos dát a zmluvné podmienky,
 - TLS verifikácia, timeouty, maximálna odpoveď a rate limiting,
 - PII redakcia pred externým API, ak to právny základ vyžaduje,
 - zákaz logovania promptov a dokumentov v defaultnom režime.
@@ -65,4 +71,3 @@ CLI identita z `.env` nie je autentifikácia. Embedded Qdrant ani lokálny manif
 neposkytujú serverové RBAC. Pred sieťovým alebo multi-user nasadením preto treba
 doplniť API gateway, overenie tokenov, databázové politiky, šifrovanie a centrálny
 audit.
-
