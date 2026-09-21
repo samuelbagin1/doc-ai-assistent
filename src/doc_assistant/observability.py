@@ -1,3 +1,5 @@
+"""Zaznamenáva metriky otázok, tokenov, latencie a používateľský feedback do SQLite."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -11,6 +13,8 @@ from doc_assistant.domain import AssistantAnswer
 
 @dataclass(frozen=True, slots=True)
 class MetricsSummary:
+    """Agregované počty otázok, abstencií, tokenov a negatívnych hodnotení."""
+
     questions: int
     abstentions: int
     average_latency_ms: float
@@ -20,7 +24,10 @@ class MetricsSummary:
 
 
 class MetricsStore:
+    """SQLite úložisko interakcií a súhrnných prevádzkových metrík."""
+
     def __init__(self, path: Path) -> None:
+        """Prijme cestu k SQLite databáze, vytvorí schému a nič nevracia."""
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path)
         self.connection.execute(
@@ -48,6 +55,7 @@ class MetricsStore:
     def record(
         self, question: str, answer: AssistantAnswer, *, tenant_id: str, user_id: str
     ) -> str:
+        """Uloží otázku, odpoveď a identitu; vráti ID interakcie pre feedback."""
         interaction_id = str(uuid.uuid4())
         self.connection.execute(
             """
@@ -72,6 +80,7 @@ class MetricsStore:
         return interaction_id
 
     def feedback(self, interaction_id: str, value: int, note: str = "") -> None:
+        """Prijme ID, hodnotenie ±1 a poznámku; aktualizuje interakciu."""
         if value not in {-1, 1}:
             raise ValueError("Feedback musí byť -1 alebo 1.")
         cursor = self.connection.execute(
@@ -83,6 +92,7 @@ class MetricsStore:
             raise KeyError("Interakcia neexistuje.")
 
     def summary(self, *, tenant_id: str) -> MetricsSummary:
+        """Prijme tenant ID a vráti jeho agregované metriky."""
         row = self.connection.execute(
             """
             SELECT COUNT(*), COALESCE(SUM(abstained), 0), COALESCE(AVG(latency_ms), 0),
