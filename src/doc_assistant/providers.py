@@ -1,3 +1,5 @@
+"""Adaptéry pre embeddingy, tvorbu odpovede cez DeepSeek a webové vyhľadávanie."""
+
 from __future__ import annotations
 
 import json
@@ -8,16 +10,18 @@ from typing import Any
 
 from openai import OpenAI
 
+from doc_assistant.api_resilience import ModelCallGate
 from doc_assistant.domain import (
+    AnswerClaim,
     AssistantAnswer,
     DraftAnswer,
     RetrievedChunk,
     Source,
-    Verification,
 )
 
 
 def _json_object(text: str) -> dict[str, Any]:
+    """Prijme text modelu a vráti jeho JSON objekt alebo vyvolá chybu formátu."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.DOTALL)
@@ -31,25 +35,40 @@ def _json_object(text: str) -> dict[str, Any]:
 
 
 class OpenAIEmbeddings:
-    def __init__(self, model: str, api_key: str | None = None) -> None:
+    """Vytvára dokumentové a otázkové vektory cez OpenAI embeddings API."""
+
+    def __init__(
+        self, model: str, api_key: str | None = None, gate: ModelCallGate | None = None
+    ) -> None:
+        """Prijme model, kľúč a retry gate; pripraví klienta bez interných retries."""
         self.model = model
-        self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+        self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"), max_retries=0)
+        self.gate = gate or ModelCallGate()
         self._dimension = 3072 if model == "text-embedding-3-large" else 1536
 
     @property
     def dimension(self) -> int:
+        """Bez vstupu vráti rozmer vektorov zvoleného embedding modelu."""
         return self._dimension
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
-        response = self.client.embeddings.create(model=self.model, input=list(texts))
+        """Prijme texty a vráti embedding vektory v rovnakom poradí."""
+        response = self.gate.call(
+            lambda: self.client.embeddings.create(model=self.model, input=list(texts)),
+            provider="OpenAI embeddings",
+        )
         return [item.embedding for item in response.data]
 
     def embed_query(self, text: str) -> list[float]:
+        """Prijme text otázky a vráti jej jediný embedding vektor."""
         return self.embed_documents([text])[0]
 
 
 class LocalEmbeddings:
+    """Prevádza text na vektory lokálnym multilingual SentenceTransformer modelom."""
+
     def __init__(self, model_name: str) -> None:
+        """Prijme názov lokálneho modelu a načíta jeho váhy a dimenziu."""
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as error:
@@ -61,72 +80,91 @@ class LocalEmbeddings:
 
     @property
     def dimension(self) -> int:
+        """Bez vstupu vráti dimenziu lokálneho embedding modelu."""
         return self._dimension
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        """Prijme dokumentové texty a vráti normalizované vektory."""
         prepared = [f"passage: {text}" for text in texts]
         return self.model.encode(prepared, normalize_embeddings=True).tolist()
 
     def embed_query(self, text: str) -> list[float]:
+        """Prijme otázku a vráti normalizovaný vyhľadávací vektor."""
         return self.model.encode(
             [f"query: {text}"], normalize_embeddings=True
         )[0].tolist()
 
 
 class DeepSeekRAGModel:
-    def __init__(self, *, model: str, base_url: str, api_key: str | None = None) -> None:
+    """Používa DeepSeek iba na generovanie tvrdení a doplňujúceho dopytu."""
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        base_url: str,
+        api_key: str | None = None,
+        gate: ModelCallGate | None = None,
+    ) -> None:
+        """Prijme model, endpoint, kľúč a retry gate; pripraví klienta."""
         self.model = model
+        self.gate = gate or ModelCallGate()
         self.client = OpenAI(
             api_key=api_key or os.getenv("DEEPSEEK_API_KEY"),
             base_url=base_url,
+            max_retries=0,
         )
         self.input_tokens = 0
         self.output_tokens = 0
 
     def reset_usage(self) -> None:
+        """Pred novou otázkou vynuluje počítadlá tokenov; nič nevracia."""
         self.input_tokens = 0
         self.output_tokens = 0
 
     def usage(self) -> tuple[int, int]:
+        """Bez vstupu vráti súčet vstupných a výstupných tokenov."""
         return self.input_tokens, self.output_tokens
 
     def draft(self, question: str, evidence: Sequence[RetrievedChunk]) -> DraftAnswer:
+        """Prijme otázku a chunky; vráti odpoveď s citovanými atómovými tvrdeniami."""
         context = self._context(evidence)
         data = self._chat_json(
             "Si presný RAG asistent. Použi iba dodané dôkazy. Každé faktické tvrdenie musí "
-            "byť podložené. Ak dôkazy nestačia, otvorene to povedz. Vráť JSON so schémou "
-            '{"answer":"...","cited_chunk_ids":["..."]}. Nevymýšľaj identifikátory.',
+            "byť podložené. Rozdeľ odpoveď na najviac 6 samostatne overiteľných tvrdení. "
+            "Ak dôkazy nestačia, otvorene to povedz. Vráť JSON so schémou "
+            '{"answer":"...","claims":[{"text":"jedno tvrdenie",'
+            '"cited_chunk_ids":["chunk-id"]}]}. Každé faktické tvrdenie z answer musí byť '
+            "v claims. Nevymýšľaj identifikátory.",
             f"OTÁZKA:\n{question}\n\nDÔKAZY:\n{context}",
         )
         valid_ids = {item.chunk.id for item in evidence}
-        citations = tuple(
-            str(value) for value in data.get("cited_chunk_ids", []) if str(value) in valid_ids
-        )
-        return DraftAnswer(text=str(data.get("answer", "")).strip(), cited_chunk_ids=citations)
-
-    def verify(
-        self, question: str, draft: DraftAnswer, evidence: Sequence[RetrievedChunk]
-    ) -> Verification:
-        context = self._context(evidence)
-        data = self._chat_json(
-            "Si nezávislý fact-checker. Posúď iba vzťah odpovede k dôkazom, nie svoje znalosti. "
-            "Vráť JSON: faithful (bool), sufficient (bool), citation_coverage (0..1), "
-            "faithfulness (0..1), answer_relevance (0..1), unsupported_claims (array), reason.",
-            f"OTÁZKA:\n{question}\n\nODPOVEĎ:\n{draft.text}\n\nDÔKAZY:\n{context}",
-        )
-        return Verification(
-            faithful=bool(data.get("faithful", False)),
-            sufficient=bool(data.get("sufficient", False)),
-            citation_coverage=self._rate(data.get("citation_coverage")),
-            faithfulness=self._rate(data.get("faithfulness")),
-            answer_relevance=self._rate(data.get("answer_relevance")),
-            unsupported_claims=tuple(str(item) for item in data.get("unsupported_claims", [])),
-            reason=str(data.get("reason", "")),
+        raw_claims = data.get("claims")
+        claims: list[AnswerClaim] = []
+        if isinstance(raw_claims, list) and len(raw_claims) <= 6:
+            for item in raw_claims:
+                if not isinstance(item, dict):
+                    continue
+                raw_ids = item.get("cited_chunk_ids")
+                ids = (
+                    tuple(str(value) for value in raw_ids if str(value) in valid_ids)
+                    if isinstance(raw_ids, list)
+                    else ()
+                )
+                text = str(item.get("text", "")).strip()
+                if text:
+                    claims.append(AnswerClaim(text=text, cited_chunk_ids=ids))
+        citations = tuple(dict.fromkeys(id_ for claim in claims for id_ in claim.cited_chunk_ids))
+        return DraftAnswer(
+            text=str(data.get("answer", "")).strip(),
+            cited_chunk_ids=citations,
+            claims=tuple(claims),
         )
 
     def rewrite_query(
         self, question: str, evidence: Sequence[RetrievedChunk], reason: str
     ) -> str:
+        """Prijme otázku, dôkazy a dôvod; vráti preformulovaný retrieval dopyt."""
         data = self._chat_json(
             "Vytvor jeden presný vyhľadávací dopyt do vektorovej databázy, ktorý doplní chýbajúci "
             'dôkaz. Vráť iba JSON {"query":"..."}.',
@@ -137,14 +175,18 @@ class DeepSeekRAGModel:
         return query or question
 
     def _chat_json(self, system: str, user: str) -> dict[str, Any]:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            temperature=0,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+        """Prijme systémový a používateľský prompt; vráti JSON z DeepSeek API."""
+        response = self.gate.call(
+            lambda: self.client.chat.completions.create(
+                model=self.model,
+                temperature=0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            ),
+            provider="DeepSeek",
         )
         if response.usage:
             self.input_tokens += int(response.usage.prompt_tokens or 0)
@@ -154,35 +196,39 @@ class DeepSeekRAGModel:
 
     @staticmethod
     def _context(evidence: Sequence[RetrievedChunk]) -> str:
+        """Prijme skórované chunky a vráti ich text s ID a zdrojovými metadátami."""
         return "\n\n".join(
             f"[chunk_id={item.chunk.id}; zdroj={item.chunk.reference}; score={item.score:.3f}]\n"
             f"{item.chunk.text}"
             for item in evidence
         )
 
-    @staticmethod
-    def _rate(value: Any) -> float:
-        try:
-            return max(0.0, min(1.0, float(value)))
-        except (TypeError, ValueError):
-            return 0.0
-
-
 class OpenAIWebSearch:
-    def __init__(self, model: str, api_key: str | None = None) -> None:
+    """Používa Responses API na webový fallback s URL citáciami."""
+
+    def __init__(
+        self, model: str, api_key: str | None = None, gate: ModelCallGate | None = None
+    ) -> None:
+        """Prijme model, kľúč a retry gate; pripraví OpenAI klienta."""
         self.model = model
-        self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+        self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"), max_retries=0)
+        self.gate = gate or ModelCallGate()
 
     def search(self, question: str) -> AssistantAnswer:
-        response = self.client.responses.create(
-            model=self.model,
-            tools=[{"type": "web_search"}],
-            include=["web_search_call.action.sources"],
-            instructions=(
-                "Odpovedz po slovensky. Použi aktuálne webové zdroje, uveď citácie a jasne označ "
-                "neistotu. Ak spoľahlivý zdroj nenájdeš, povedz, že odpoveď nie je možné overiť."
+        """Prijme otázku a vráti webovú odpoveď s citáciami alebo abstenciu."""
+        response = self.gate.call(
+            lambda: self.client.responses.create(
+                model=self.model,
+                tools=[{"type": "web_search"}],
+                include=["web_search_call.action.sources"],
+                instructions=(
+                    "Odpovedz po slovensky. Použi aktuálne webové zdroje, uveď citácie a jasne "
+                    "označ neistotu. Ak spoľahlivý zdroj nenájdeš, povedz, že odpoveď nie je "
+                    "možné overiť."
+                ),
+                input=question,
             ),
-            input=question,
+            provider="OpenAI web search",
         )
         sources = self._extract_sources(response)
         confidence = 0.78 if sources else 0.0
@@ -200,6 +246,7 @@ class OpenAIWebSearch:
 
     @staticmethod
     def _extract_sources(response: Any) -> list[Source]:
+        """Prijme API odpoveď a vráti unikátne URL z anotácií a webového nástroja."""
         found: dict[str, Source] = {}
         for output in getattr(response, "output", []) or []:
             if getattr(output, "type", "") == "message":
