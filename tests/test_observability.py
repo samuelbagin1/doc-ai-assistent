@@ -1,8 +1,11 @@
+"""Testuje ukladanie interakcií a výpočet metrík s používateľským feedbackom."""
+
 from doc_assistant.domain import AssistantAnswer
 from doc_assistant.observability import MetricsStore
 
 
 def test_metrics_and_feedback(tmp_path) -> None:
+    """Prijme temp databázu a overí počty, tokeny, latenciu a negatívny feedback."""
     store = MetricsStore(tmp_path / "metrics.sqlite3")
     answer = AssistantAnswer(
         text="Odpoveď",
@@ -22,4 +25,3 @@ def test_metrics_and_feedback(tmp_path) -> None:
     assert summary.average_latency_ms == 250.0
     assert summary.input_tokens + summary.output_tokens == 15
     assert summary.negative_feedback == 1
-
