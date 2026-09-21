@@ -32,7 +32,7 @@ class WorkflowState(TypedDict, total=False):
 
 
 class RAGWorkflow:
-    """Orchestruje retrieval, DeepSeek draft, Jev kontrolu, web a abstenciu."""
+    """Orchestruje retrieval, OpenAI návrh, Jev kontrolu, web a abstenciu."""
 
     def __init__(
         self,
