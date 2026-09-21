@@ -1,4 +1,7 @@
+"""Testuje vetvenie LangGraph workflowu bez reálnych providerov a API kľúčov."""
+
 from doc_assistant.domain import (
+    AnswerClaim,
     AssistantAnswer,
     Chunk,
     DraftAnswer,
@@ -10,6 +13,7 @@ from doc_assistant.workflow import RAGWorkflow
 
 
 def evidence(score: float = 0.95) -> RetrievedChunk:
+    """Prijme similarity skóre a vráti testovací chunk so zdrojovými metadátami."""
     return RetrievedChunk(
         chunk=Chunk(
             id="chunk-1",
@@ -25,24 +29,50 @@ def evidence(score: float = 0.95) -> RetrievedChunk:
 
 
 class FakeRetriever:
+    """Vracia pripravené chunky a počíta počet vyhľadávacích pokusov."""
+
     def __init__(self, results):
+        """Prijme výsledky, ktoré má každý search vrátiť."""
         self.results = results
         self.calls = 0
 
     def search(self, query, *, k, tenant_id):
+        """Prijme dopyt, limit a tenant; vráti pripravené chunky a zvýši počítadlo."""
         self.calls += 1
         return self.results
 
 
 class FakeModel:
+    """Vytvorí pevný návrh odpovede a doplňujúci query pre testy grafu."""
+
     def __init__(self, valid=True):
+        """Prijme kompatibilný valid flag a vynuluje počet query rewrite."""
         self.valid = valid
         self.rewrites = 0
 
     def draft(self, question, items):
-        return DraftAnswer("Záruka je 24 mesiacov.", ("chunk-1",))
+        """Prijme otázku a dôkazy; vráti odpoveď s jedným citovaným tvrdením."""
+        return DraftAnswer(
+            "Záruka je 24 mesiacov.",
+            ("chunk-1",),
+            (AnswerClaim("Záruka je 24 mesiacov.", ("chunk-1",)),),
+        )
+
+    def rewrite_query(self, question, items, reason):
+        """Prijme dôvod retry a vráti pevný doplňujúci query reťazec."""
+        self.rewrites += 1
+        return "záručná lehota dĺžka"
+
+
+class FakeVerifier:
+    """Vráti vopred zvolený pozitívny alebo negatívny verifikačný verdikt."""
+
+    def __init__(self, valid=True):
+        """Prijme boolean určujúci úspešnosť nasledujúcej verifikácie."""
+        self.valid = valid
 
     def verify(self, question, draft, items):
+        """Prijme otázku, návrh a dôkazy; vráti pripravené skóre a dôvod."""
         return Verification(
             faithful=self.valid,
             sufficient=self.valid,
@@ -52,13 +82,11 @@ class FakeModel:
             reason="Chýba údaj." if not self.valid else "",
         )
 
-    def rewrite_query(self, question, items, reason):
-        self.rewrites += 1
-        return "záručná lehota dĺžka"
-
-
 class FakeWeb:
+    """Simuluje webový fallback s jedným externým citovaným zdrojom."""
+
     def search(self, question):
+        """Prijme otázku a vráti pevnú webovú odpoveď s URL."""
         return AssistantAnswer(
             text="Webová odpoveď.",
             confidence=0.8,
@@ -68,9 +96,11 @@ class FakeWeb:
 
 
 def test_workflow_returns_document_answer_with_source() -> None:
+    """Overí, že úspešný Jev verdikt pustí internú odpoveď s dokumentovou citáciou."""
     workflow = RAGWorkflow(
         retriever=FakeRetriever([evidence()]),
         model=FakeModel(valid=True),
+        verifier=FakeVerifier(valid=True),
         web_search=None,
         tenant_id="local",
     )
@@ -83,11 +113,13 @@ def test_workflow_returns_document_answer_with_source() -> None:
 
 
 def test_workflow_retries_then_uses_web() -> None:
+    """Overí dva retrieval pokusy a následný webový fallback po odmietnutí."""
     retriever = FakeRetriever([evidence()])
     model = FakeModel(valid=False)
     workflow = RAGWorkflow(
         retriever=retriever,
         model=model,
+        verifier=FakeVerifier(valid=False),
         web_search=FakeWeb(),
         tenant_id="local",
         max_retrieval_attempts=2,
@@ -101,9 +133,11 @@ def test_workflow_retries_then_uses_web() -> None:
 
 
 def test_workflow_abstains_without_web() -> None:
+    """Overí, že bez dôkazov a webu graf skončí abstenciou bez zdroja."""
     workflow = RAGWorkflow(
         retriever=FakeRetriever([]),
         model=FakeModel(valid=False),
+        verifier=FakeVerifier(valid=False),
         web_search=None,
         tenant_id="local",
         max_retrieval_attempts=1,
@@ -114,4 +148,3 @@ def test_workflow_abstains_without_web() -> None:
     assert answer.abstained is True
     assert answer.route == "abstain"
     assert answer.sources == ()
-
