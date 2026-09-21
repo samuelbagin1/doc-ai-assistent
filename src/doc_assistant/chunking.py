@@ -1,3 +1,5 @@
+"""Z textových strán vytvára sekčné chunky s metadátami pre Qdrant a citácie."""
+
 from __future__ import annotations
 
 import re
@@ -10,6 +12,8 @@ from doc_assistant.domain import Chunk
 
 @dataclass(frozen=True, slots=True)
 class PageText:
+    """Vstupná strana dokumentu; obsahuje číslo strany a extrahovaný text."""
+
     page: int | None
     text: str
 
@@ -21,6 +25,7 @@ class SectionAwareChunker:
     """Najprv rešpektuje Markdown sekcie, potom rekurzívne delí dlhý text."""
 
     def __init__(self, chunk_size: int = 1400, chunk_overlap: int = 180) -> None:
+        """Prijme maximálnu dĺžku a prekryv chunkov; pripraví splitter bez výstupu."""
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -32,6 +37,7 @@ class SectionAwareChunker:
         filename: str,
         tenant_id: str,
     ) -> list[Chunk]:
+        """Prijme strany a identitu dokumentu; vráti chunky s názvom sekcie a stranou."""
         chunks: list[Chunk] = []
         current_section: str | None = None
         for page in pages:
@@ -57,6 +63,7 @@ class SectionAwareChunker:
         return chunks
 
     def _sections(self, text: str, inherited: str | None) -> list[tuple[str | None, str]]:
+        """Rozdelí text pri Markdown nadpisoch; vráti dvojice názvu sekcie a jej tela."""
         result: list[tuple[str | None, str]] = []
         title = inherited
         buffer: list[str] = []
@@ -74,11 +81,13 @@ class SectionAwareChunker:
         return result or [(inherited, text)]
 
     def _recursive_split(self, text: str) -> list[str]:
+        """Prijme dlhý text; vráti podreťazce rešpektujúce veľkosť chunku."""
         if len(text) <= self.chunk_size:
             return [text]
         return self._split_with_separators(text, ("\n\n", "\n", ". ", " "))
 
     def _split_with_separators(self, text: str, separators: tuple[str, ...]) -> list[str]:
+        """Prijme text a poradie oddeľovačov; vráti rekurzívne rozdelené kúsky."""
         if len(text) <= self.chunk_size:
             return [text]
         if not separators:
