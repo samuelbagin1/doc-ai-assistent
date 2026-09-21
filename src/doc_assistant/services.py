@@ -1,3 +1,5 @@
+"""Koordinuje import a mazanie medzi súborovým manifestom a Qdrantom."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,6 +11,8 @@ from doc_assistant.vector_store import QdrantVectorStore
 
 
 class DocumentService:
+    """Aplikačná služba pre dokumenty s tenant kontextom a rollbackom ingestu."""
+
     def __init__(
         self,
         *,
@@ -18,6 +22,7 @@ class DocumentService:
         tenant_id: str,
         ocr_mode: str,
     ) -> None:
+        """Prijme úložiská, chunker, tenant a OCR režim; pripraví službu."""
         self.documents = documents
         self.vectors = vectors
         self.chunker = chunker
@@ -25,6 +30,7 @@ class DocumentService:
         self.ocr_mode = ocr_mode
 
     def add(self, source: Path) -> DocumentRecord:
+        """Prijme cestu k dokumentu, uloží súbor aj vektory a vráti záznam."""
         record, chunks = self.documents.prepare(
             source,
             chunker=self.chunker,
@@ -41,6 +47,7 @@ class DocumentService:
         return record
 
     def delete(self, document_id: str) -> DocumentRecord:
+        """Prijme ID, odstráni vektory aj súbor a vráti odstránený záznam."""
         record = self.documents.get(document_id, tenant_id=self.tenant_id)
         if record is None:
             raise KeyError("Dokument neexistuje alebo k nemu nemáte prístup.")
@@ -48,5 +55,5 @@ class DocumentService:
         return self.documents.delete_record(document_id, tenant_id=self.tenant_id)
 
     def list(self) -> list[DocumentRecord]:
+        """Bez vstupu vráti dokumenty aktuálneho tenantu."""
         return self.documents.list(tenant_id=self.tenant_id)
-
