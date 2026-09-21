@@ -1,3 +1,5 @@
+"""Definuje nemenné dátové typy dokumentov, tvrdení, zdrojov a odpovedí."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,6 +10,8 @@ from typing import Literal
 
 @dataclass(frozen=True, slots=True)
 class DocumentRecord:
+    """Manifestový záznam uloženého súboru, jeho hashu, počtu chunkov a tenantu."""
+
     id: str
     filename: str
     stored_path: str
@@ -19,11 +23,14 @@ class DocumentRecord:
 
     @property
     def path(self) -> Path:
+        """Z uloženého reťazca cesty vráti objekt Path k fyzickému dokumentu."""
         return Path(self.stored_path)
 
 
 @dataclass(frozen=True, slots=True)
 class Chunk:
+    """Textový úsek s ID, zdrojovým dokumentom, stranou, sekciou a tenantom."""
+
     id: str
     document_id: str
     filename: str
@@ -35,6 +42,7 @@ class Chunk:
 
     @property
     def reference(self) -> str:
+        """Z metadát chunku vytvorí čitateľnú citáciu dokumentu, strany a sekcie."""
         pages = ""
         if self.page_start is not None:
             pages = f", s. {self.page_start}"
@@ -46,18 +54,33 @@ class Chunk:
 
 @dataclass(frozen=True, slots=True)
 class RetrievedChunk:
+    """Pár dokumentového chunku a jeho similarity skóre z vektorovej databázy."""
+
     chunk: Chunk
     score: float
 
 
 @dataclass(frozen=True, slots=True)
+class AnswerClaim:
+    """Jedno overiteľné tvrdenie z odpovede s identifikátormi citovaných chunkov."""
+
+    text: str
+    cited_chunk_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class DraftAnswer:
+    """Návrh odpovede a jeho citácie; `claims` umožňujú atómové overenie."""
+
     text: str
     cited_chunk_ids: tuple[str, ...] = ()
+    claims: tuple[AnswerClaim, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class Verification:
+    """Štruktúrovaný výsledok Jev: opora tvrdení, úplnosť, relevancia a dôvod."""
+
     faithful: bool
     sufficient: bool
     citation_coverage: float
@@ -69,6 +92,8 @@ class Verification:
 
 @dataclass(frozen=True, slots=True)
 class Source:
+    """Citovaný interný dokument alebo webová URL s voliteľným krátkym úryvkom."""
+
     label: str
     kind: Literal["document", "web"]
     locator: str
@@ -77,6 +102,8 @@ class Source:
 
 @dataclass(frozen=True, slots=True)
 class AssistantAnswer:
+    """Konečná odpoveď s citáciami, route, istotou, tokenmi a latenciou."""
+
     text: str
     confidence: float
     sources: tuple[Source, ...]
@@ -87,4 +114,3 @@ class AssistantAnswer:
     input_tokens: int = 0
     output_tokens: int = 0
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-
