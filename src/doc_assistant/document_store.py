@@ -1,3 +1,5 @@
+"""Ukladá pôvodné dokumenty, číta ich strany a spravuje manifest súborov."""
+
 from __future__ import annotations
 
 import hashlib
@@ -18,13 +20,17 @@ from doc_assistant.domain import Chunk, DocumentRecord
 
 
 class DocumentStore:
+    """Spravuje fyzické súbory a atómovo zapisovaný JSON manifest dokumentov."""
+
     def __init__(self, files_dir: Path, data_dir: Path) -> None:
+        """Prijme adresáre dokumentov a dát; pripraví ich a cestu k manifestu."""
         self.files_dir = files_dir
         self.manifest_path = data_dir / "documents.json"
         self.files_dir.mkdir(parents=True, exist_ok=True)
         data_dir.mkdir(parents=True, exist_ok=True)
 
     def list(self, *, tenant_id: str) -> list[DocumentRecord]:
+        """Prijme tenant ID a vráti jeho dokumenty od najnovšieho záznamu."""
         records = [DocumentRecord(**item) for item in self._read_manifest()]
         return sorted(
             (record for record in records if record.tenant_id == tenant_id),
@@ -33,6 +39,7 @@ class DocumentStore:
         )
 
     def get(self, document_id: str, *, tenant_id: str) -> DocumentRecord | None:
+        """Prijme ID dokumentu a tenantu; vráti záznam alebo None."""
         return next(
             (r for r in self.list(tenant_id=tenant_id) if r.id == document_id),
             None,
@@ -46,6 +53,7 @@ class DocumentStore:
         tenant_id: str,
         ocr_mode: str,
     ) -> tuple[DocumentRecord, list[Chunk]]:
+        """Skopíruje zdroj, extrahuje strany a vráti záznam s chunkmi pred commitom."""
         source = source.expanduser().resolve()
         if not source.is_file():
             raise FileNotFoundError(f"Súbor neexistuje: {source}")
@@ -87,14 +95,17 @@ class DocumentStore:
             raise
 
     def commit(self, record: DocumentRecord) -> None:
+        """Prijme pripravený záznam a uloží ho do manifestu; nič nevracia."""
         items = self._read_manifest()
         items.append(asdict(record))
         self._write_manifest(items)
 
     def rollback_file(self, record: DocumentRecord) -> None:
+        """Prijme neúspešne importovaný záznam a odstráni jeho fyzickú kópiu."""
         record.path.unlink(missing_ok=True)
 
     def delete_record(self, document_id: str, *, tenant_id: str) -> DocumentRecord:
+        """Odstráni záznam a súbor daného tenantu; vráti odstránený záznam."""
         records = self._read_manifest()
         target = next(
             (
@@ -111,6 +122,7 @@ class DocumentStore:
         return target
 
     def _extract_pages(self, path: Path, *, ocr_mode: str) -> list[PageText]:
+        """Prijme súbor a OCR režim; vráti text po jednotlivých PDF stranách."""
         if path.suffix.lower() != ".pdf":
             return [PageText(page=1, text=anydoc.to_markdown(path, ocr=ocr_mode))]
 
@@ -127,6 +139,7 @@ class DocumentStore:
         return pages
 
     def _read_manifest(self) -> list[dict]:
+        """Bez vstupu načíta JSON manifest a vráti zoznam záznamov."""
         if not self.manifest_path.exists():
             return []
         try:
@@ -138,6 +151,7 @@ class DocumentStore:
         return value
 
     def _write_manifest(self, records: list[dict]) -> None:
+        """Prijme zoznam záznamov a atómovo prepíše manifest; nič nevracia."""
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.manifest_path.with_suffix(".tmp")
         temporary.write_text(
@@ -148,6 +162,7 @@ class DocumentStore:
 
     @staticmethod
     def _sha256(path: Path) -> str:
+        """Prijme cestu k súboru a vráti jeho SHA-256 hash ako hex reťazec."""
         digest = hashlib.sha256()
         with path.open("rb") as stream:
             for block in iter(lambda: stream.read(1024 * 1024), b""):
@@ -156,5 +171,6 @@ class DocumentStore:
 
     @staticmethod
     def _safe_filename(name: str) -> str:
+        """Prijme pôvodný názov a vráti bezpečný názov pre uloženú kópiu."""
         safe = "".join(character for character in name if character.isalnum() or character in ".-_")
         return safe or "document"
