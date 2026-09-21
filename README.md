@@ -11,7 +11,7 @@ Ak ani potom nevie odpoveď podložiť, radšej sa odpovede zdrží.
 - sekčne orientované chunkovanie a rekurzívne delenie na približne 1 400 znakov,
 - Qdrant s `k=5` a metadátami dokumentu, strany, sekcie, tenantu a chunku,
 - OpenAI `text-embedding-3-large` alebo lokálne `multilingual-e5-large`,
-- DeepSeek V4.1 Flash (`deepseek-flash`) pre návrh odpovede a query rewrite,
+- OpenAI GPT-5.6 Luna (`gpt-5.6-luna`) pre návrh odpovede a query rewrite,
 - Jev cez TypeSafe AI pre overenie citovaných tvrdení a úplnosti odpovede,
 - OpenAI GPT-5.6 Terra s natívnym `web_search` pre webový fallback,
 - LangGraph workflow s pevnou hranicou retrievalu a bezpečnou abstenciou,
@@ -29,7 +29,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
-# doplňte DEEPSEEK_API_KEY, OPENAI_API_KEY a TYPESAFE_API_KEY
+# doplňte OPENAI_API_KEY a TYPESAFE_API_KEY
 doc-assistant
 ```
 
@@ -66,7 +66,7 @@ flowchart LR
     G --> R[Retriever]
     R --> Q[(Qdrant)]
     R --> E[Embedding provider]
-    G --> D[DeepSeek V4.1 Flash]
+    G --> D[GPT-5.6 Luna]
     G --> J[Jev / TypeSafe AI]
     G -->|iba po zlyhaní interných dôkazov| W[GPT-5.6 Terra + web_search]
     I[Document ingest] --> A[AnyDoc]
@@ -83,7 +83,7 @@ Podrobné komponenty, sekvenčný, stavový a deployment diagram sú v
 
 1. Otázka sa embedduje a z Qdrantu sa načíta päť najbližších chunkov.
 2. Chunky pod minimálnym skóre sa odstránia.
-3. DeepSeek vytvorí odpoveď a najviac šesť atómových tvrdení s citovanými `chunk_id`.
+3. GPT-5.6 Luna vytvorí odpoveď a najviac šesť atómových tvrdení s citovanými `chunk_id`.
 4. Jev posúdi vzťah každej citácie k tvrdeniu, úplnosť zoznamu tvrdení,
    dostatočnosť a relevanciu. Chýbajúce alebo neplatné citácie sa odmietnu bez API volania.
 5. Aplikácia vypočíta confidence z retrieval skóre a verifikačných metrík.
@@ -146,17 +146,19 @@ súčasne podľa `document_id` a `tenant_id`.
 
 ## Konfigurácia modelov
 
-Názvy sú v `.env`, aby sa provider dal vymeniť bez zmeny workflowu. Oficiálna
-[OpenAI dokumentácia modelov](https://developers.openai.com/api/docs/models)
-uvádza model ID `gpt-5.6-terra`; dokumentácia
+Názvy sú v `.env`, aby sa model dal vymeniť bez zmeny workflowu. Oficiálna
+[OpenAI dokumentácia GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
+uvádza ID `gpt-5.6-luna` a podporu Chat Completions. Nastavenie
+`OPENAI_ANSWER_MODEL` riadi generátor, `OPENAI_WEB_MODEL` webový fallback;
+pre oba sa používa `OPENAI_API_KEY`. Dokumentácia
 [`text-embedding-3-large`](https://developers.openai.com/api/docs/models/text-embedding-3-large)
 ho uvádza ako najschopnejší embedding model pre angličtinu aj iné jazyky.
-DeepSeek dokumentuje alias `deepseek-flash` vo svojom
-[changelogu](https://api-docs.deepseek.com/updates/).
 [TypeSafe dokumentácia](https://docs.typesafe.ai/sdk/python) opisuje Python SDK;
 aplikácia používa pripnuté ID `jev-1.13.0` cez `TYPESAFE_MODEL`.
 
-Volania DeepSeek, OpenAI aj TypeSafe prechádzajú zdieľaným semaforom. Pri
+GPT-5.6 Luna používa nízke reasoning effort a JSON režim; pri migrácii sa
+neposiela pôvodný parameter `temperature=0`. Volania OpenAI aj TypeSafe
+prechádzajú zdieľaným semaforom. Pri
 dočasnom rate limite, serverovej chybe alebo výpadku spojenia nasledujú nanajvýš
 dve opakovania po 10 a 60 sekundách (prípadne dlhšie podľa `Retry-After`).
 Trvalo vyčerpaný kredit alebo kvóta sa neopakujú. Interné retry SDK sú vypnuté,
