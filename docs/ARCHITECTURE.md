@@ -37,8 +37,13 @@ classDiagram
     }
     class DeepSeekRAGModel {
       +draft(question, evidence)
-      +verify(question, draft, evidence)
       +rewrite_query(...)
+    }
+    class JevVerifier {
+      +verify(question, draft, evidence) Verification
+    }
+    class ModelCallGate {
+      +call(operation, provider)
     }
     class OpenAIWebSearch {
       +search(question) AssistantAnswer
@@ -57,7 +62,11 @@ classDiagram
     DocumentService --> QdrantVectorStore
     RAGWorkflow --> QdrantVectorStore
     RAGWorkflow --> DeepSeekRAGModel
+    RAGWorkflow --> JevVerifier
     RAGWorkflow --> OpenAIWebSearch
+    DeepSeekRAGModel --> ModelCallGate
+    JevVerifier --> ModelCallGate
+    OpenAIWebSearch --> ModelCallGate
 ```
 
 ## UML sekvenčný diagram odpovede
@@ -69,6 +78,7 @@ sequenceDiagram
     participant G as LangGraph
     participant Q as Qdrant
     participant D as DeepSeek
+    participant J as Jev / TypeSafe
     participant W as OpenAI Web Search
 
     U->>C: otázka + Enter
@@ -76,9 +86,9 @@ sequenceDiagram
     G->>Q: similarity search, k=5
     Q-->>G: chunky + skóre + metadata
     G->>D: draft(otázka, chunky)
-    D-->>G: odpoveď + chunk_id citácie
-    G->>D: verify(otázka, odpoveď, chunky)
-    D-->>G: faithfulness, sufficient, unsupported
+    D-->>G: odpoveď + atómové tvrdenia + chunk_id citácie
+    G->>J: verify(otázka, tvrdenia, citované chunky)
+    J-->>G: podpora tvrdení, úplnosť, relevancia
     alt dôkazy sú dostatočné
         G-->>C: odpoveď + dokumentové zdroje
     else prvý pokus nestačí
@@ -128,6 +138,7 @@ flowchart TB
       CLI --- QLOCAL
     end
     CLI -->|TLS, API key| DS[DeepSeek API]
+    CLI -->|TLS, API key| TS[TypeSafe Jev API]
     CLI -->|TLS, API key| OAI[OpenAI Embeddings + Responses Web Search]
     CLI -. iba OCR_MODE=hosted .-> FC[Firecrawl Parse]
 ```
@@ -135,9 +146,22 @@ flowchart TB
 ## Externé systémy a API
 
 Provider adaptéry sú na okraji systému. DeepSeek používa OpenAI-compatible Chat
-Completions s JSON režimom. OpenAI web používa Responses API s explicitným nástrojom
+Completions s JSON režimom. Jev používa TypeSafe Python SDK: pre každé tvrdenie
+vracia typovanú voľbu `supports`/`contradicts`/`says_nothing` a pre dostatočnosť,
+relevanciu a úplnosť numerické odpovede. Jev neposkytuje finálny text odpovede.
+OpenAI web používa Responses API s explicitným nástrojom
 `{"type":"web_search"}` a zbiera URL anotácie. Embedding adapter možno vymeniť za
 lokálny SentenceTransformer.
+
+Jeden `ModelCallGate` obmedzuje súbežnosť volaní modelových API na 1. Retry
+schéma je 10 s, potom 60 s; čakanie prebieha mimo semafora. Rešpektuje sa dlhší
+`Retry-After`. Trvalé chyby kreditu/kvóty sa neopakujú a interné retry SDK sú
+vypnuté. Po poslednej chybe sa výnimka propaguje do CLI; nie je to verifikovaná
+odpoveď ani tichá abstencia.
+
+Jev kontroluje dokumentovú vetvu. Webový fallback má URL citácie, ale bez
+obsahu webových stránok nevykonáva claim-level kontrolu Jev. Pre citlivé nasadenie
+treba web vypnúť alebo doplniť načítanie a overenie citovaných stránok.
 
 Pre budúce podnikové API treba pridať samostatný, úzko typovaný tool adapter:
 
@@ -156,10 +180,9 @@ vykonáva iba čítacie externé volania.
 
 - **LangGraph namiesto voľného agenta:** povolené prechody, retry a náklady sú
   deterministické.
-- **Dve LLM roly:** generator a verifier majú oddelené prompty, no rovnakého
-  providera. V prísnej prevádzke je vhodný verifier od iného providera.
+- **Oddelený generator a verifier:** DeepSeek navrhuje odpoveď, Jev nezávisle
+  klasifikuje citované tvrdenia a dostatočnosť dôkazov.
 - **Citácie cez ID:** model neprodukuje názov súboru ani stranu; iba vyberá ID a
   aplikácia z neho vytvorí referenciu.
 - **Tenant filter pri každom čítaní a mazaní:** ochrana nesmie existovať iba v UI.
 - **Abstencia je úspešný výsledok:** nejde o exception ani neúspech aplikácie.
-
