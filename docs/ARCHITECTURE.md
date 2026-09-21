@@ -35,7 +35,7 @@ classDiagram
     class RAGWorkflow {
       +ask(question) AssistantAnswer
     }
-    class DeepSeekRAGModel {
+    class OpenAIAnswerModel {
       +draft(question, evidence)
       +rewrite_query(...)
     }
@@ -61,10 +61,10 @@ classDiagram
     DocumentService --> SectionAwareChunker
     DocumentService --> QdrantVectorStore
     RAGWorkflow --> QdrantVectorStore
-    RAGWorkflow --> DeepSeekRAGModel
+    RAGWorkflow --> OpenAIAnswerModel
     RAGWorkflow --> JevVerifier
     RAGWorkflow --> OpenAIWebSearch
-    DeepSeekRAGModel --> ModelCallGate
+    OpenAIAnswerModel --> ModelCallGate
     JevVerifier --> ModelCallGate
     OpenAIWebSearch --> ModelCallGate
 ```
@@ -77,7 +77,7 @@ sequenceDiagram
     participant C as CLI
     participant G as LangGraph
     participant Q as Qdrant
-    participant D as DeepSeek
+    participant D as GPT-5.6 Luna
     participant J as Jev / TypeSafe
     participant W as OpenAI Web Search
 
@@ -137,16 +137,16 @@ flowchart TB
       CLI --- SQLITE
       CLI --- QLOCAL
     end
-    CLI -->|TLS, API key| DS[DeepSeek API]
     CLI -->|TLS, API key| TS[TypeSafe Jev API]
-    CLI -->|TLS, API key| OAI[OpenAI Embeddings + Responses Web Search]
+    CLI -->|TLS, API key| OAI[OpenAI GPT-5.6 Luna + Embeddings + Responses Web Search]
     CLI -. iba OCR_MODE=hosted .-> FC[Firecrawl Parse]
 ```
 
 ## Externé systémy a API
 
-Provider adaptéry sú na okraji systému. DeepSeek používa OpenAI-compatible Chat
-Completions s JSON režimom. Jev používa TypeSafe Python SDK: pre každé tvrdenie
+Provider adaptéry sú na okraji systému. GPT-5.6 Luna používa OpenAI Chat
+Completions s JSON režimom a `reasoning_effort=low` na návrh odpovede aj query
+rewrite. Jev používa TypeSafe Python SDK: pre každé tvrdenie
 vracia typovanú voľbu `supports`/`contradicts`/`says_nothing` a pre dostatočnosť,
 relevanciu a úplnosť numerické odpovede. Jev neposkytuje finálny text odpovede.
 OpenAI web používa Responses API s explicitným nástrojom
@@ -180,7 +180,7 @@ vykonáva iba čítacie externé volania.
 
 - **LangGraph namiesto voľného agenta:** povolené prechody, retry a náklady sú
   deterministické.
-- **Oddelený generator a verifier:** DeepSeek navrhuje odpoveď, Jev nezávisle
+- **Oddelený generator a verifier:** GPT-5.6 Luna navrhuje odpoveď, Jev nezávisle
   klasifikuje citované tvrdenia a dostatočnosť dôkazov.
 - **Citácie cez ID:** model neprodukuje názov súboru ani stranu; iba vyberá ID a
   aplikácia z neho vytvorí referenciu.
