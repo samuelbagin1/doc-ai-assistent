@@ -52,6 +52,8 @@ golden set, lebo jazyk, štruktúra dokumentov a riziko sa líšia.
 - citation precision a citation recall,
 - completeness: či nechýba podstatný gold claim,
 - unsupported claim rate.
+- presnosť Jev triedenia `supports`/`contradicts`/`says_nothing` po tvrdeniach,
+- podiel odpovedí, kde zoznam tvrdení nepokrýva celý výsledný text.
 
 ### Abstencia
 
@@ -66,6 +68,7 @@ golden set, lebo jazyk, štruktúra dokumentov a riziko sa líšia.
 - input/output tokeny, embedding tokeny a cena na otázku,
 - počet retrieval retry, web fallback rate a abstention rate,
 - chyby a rate limits podľa providera,
+- počet opakovaní po 10/60 s a čas strávený čakaním na API,
 - objem Qdrantu, ingest throughput a OCR failure rate.
 
 ## Ablácie a optimalizácia
@@ -77,7 +80,7 @@ Použite rovnaký zmrazený test set a porovnajte:
 | A0 | plný graf | kontrolná konfigurácia |
 | A1 | bez query rewrite | nižšia cena/čas, možný pokles multi-hop recall |
 | A2 | verifier iba pri nízkom retrieval score | menej LLM volaní, riziko nepodložených odpovedí |
-| A3 | menší verifier | nižšia cena pri podobnom abstention F1 |
+| A3 | Jev verzus iný verifier alebo vypnutá kontrola | cena a latencia oproti unsupported claim rate |
 | A4 | lokálne embeddingy | súkromie a cena vs. recall v slovenčine |
 | A5 | hybrid dense + BM25 | lepšie presné termíny/čísla za vyššiu zložitosť |
 | A6 | reranker po top-20 | vyšší Recall@5 za dodatočnú latenciu |
@@ -91,9 +94,12 @@ confidence intervals, nie iba jeden priemer.
 ## Prompt/model experimenty
 
 - verziujte prompt šablóny hashom,
-- temperature držte na nule pre generator/verifier,
+- temperature držte na nule pre generátor; Jev používa typované pravdepodobnostné verdikty,
 - každú kombináciu model + prompt + retriever spustite na identickom datasete,
 - LLM judge kalibrujte voči dvojito anotovanej ľudskej vzorke,
+- prahy Jev kalibrujte osobitne na slovenskom validačnom sete a sledujte
+  nesprávne potvrdené citácie aj zbytočné abstencie,
+- webový fallback merajte oddelene: v aktuálnej verzii neprechádza Jev kontrolou,
 - test set nevyužívajte na ladenie prahov; na to je validačná časť,
 - model snapshot pripnite, ak provider snapshot poskytuje.
 
@@ -119,4 +125,3 @@ označiť faktickú odpoveď za správnu.
 - Qdrant/LLM error rate nad 1 %,
 - negatívny feedback nad kalibrovanú baseline,
 - ingest bez chunkov alebo prudký nárast OCR chýb.
-
