@@ -32,8 +32,7 @@ class Settings:
     embedding_provider: str
     openai_embedding_model: str
     local_embedding_model: str
-    deepseek_model: str
-    deepseek_base_url: str
+    openai_answer_model: str
     typesafe_model: str
     min_jev_confidence: float
     openai_web_model: str
@@ -64,8 +63,7 @@ class Settings:
             local_embedding_model=os.getenv(
                 "LOCAL_EMBEDDING_MODEL", "intfloat/multilingual-e5-large"
             ),
-            deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-flash"),
-            deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+            openai_answer_model=os.getenv("OPENAI_ANSWER_MODEL", "gpt-5.6-luna"),
             typesafe_model=os.getenv("TYPESAFE_MODEL", "jev-1.13.0"),
             min_jev_confidence=float(os.getenv("MIN_JEV_CONFIDENCE", "0.80")),
             openai_web_model=os.getenv("OPENAI_WEB_MODEL", "gpt-5.6-terra"),
