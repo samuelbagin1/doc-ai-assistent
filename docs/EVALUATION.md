@@ -94,7 +94,8 @@ confidence intervals, nie iba jeden priemer.
 ## Prompt/model experimenty
 
 - verziujte prompt šablóny hashom,
-- temperature držte na nule pre generátor; Jev používa typované pravdepodobnostné verdikty,
+- pri GPT-5.6 Luna merajte kvalitu pri `reasoning_effort=low` oproti `medium`;
+  Jev používa typované pravdepodobnostné verdikty,
 - každú kombináciu model + prompt + retriever spustite na identickom datasete,
 - LLM judge kalibrujte voči dvojito anotovanej ľudskej vzorke,
 - prahy Jev kalibrujte osobitne na slovenskom validačnom sete a sledujte
