@@ -17,6 +17,7 @@ dependencies = [
   "python-dotenv>=1.0,<2",
   "qdrant-client>=1.12,<2",
   "rich>=13.9,<15",
+  "typesafe-sdk>=0.5.7,<1",
 ]
 
 [project.optional-dependencies]
@@ -36,4 +37,3 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-
