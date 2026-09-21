@@ -1,3 +1,5 @@
+"""Interaktívne terminálové rozhranie pre otázky, súbory, citácie a metriky."""
+
 from __future__ import annotations
 
 import os
@@ -14,10 +16,12 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from doc_assistant.api_resilience import ModelCallGate
 from doc_assistant.chunking import SectionAwareChunker
 from doc_assistant.config import Settings
 from doc_assistant.document_store import DocumentStore
 from doc_assistant.domain import AssistantAnswer
+from doc_assistant.jev_verifier import JevVerifier
 from doc_assistant.observability import MetricsStore
 from doc_assistant.providers import (
     DeepSeekRAGModel,
@@ -31,6 +35,8 @@ from doc_assistant.workflow import RAGWorkflow
 
 
 class AssistantCLI:
+    """Zobrazuje chatový loop, správu dokumentov, zdroje a prevádzkové metriky."""
+
     def __init__(
         self,
         *,
@@ -40,6 +46,7 @@ class AssistantCLI:
         metrics: MetricsStore,
         console: Console,
     ) -> None:
+        """Prijme konfiguráciu a aplikačné služby; pripraví konzolu a históriu."""
         self.settings = settings
         self.documents = documents
         self.workflow = workflow
@@ -52,6 +59,7 @@ class AssistantCLI:
         )
 
     def run(self) -> None:
+        """Číta terminálové vstupy až po /exit; nič nevracia."""
         self._banner()
         while True:
             try:
@@ -68,6 +76,7 @@ class AssistantCLI:
             self._ask(raw)
 
     def _command(self, raw: str) -> bool:
+        """Prijme slash príkaz, vykoná ho a vráti True iba pri ukončení aplikácie."""
         try:
             parts = shlex.split(raw)
         except ValueError as error:
@@ -101,6 +110,7 @@ class AssistantCLI:
         return False
 
     def _ask(self, question: str) -> None:
+        """Odošle otázku workflowu a zobrazí odpoveď, citácie a tokeny."""
         try:
             with self.console.status("[cyan]Hľadám a overujem podklady…[/cyan]", spinner="dots"):
                 answer = self.workflow.ask(question)
@@ -132,6 +142,7 @@ class AssistantCLI:
             self._error(f"Inferencia zlyhala: {error}")
 
     def _add(self, argument: str) -> None:
+        """Prijme cestu k dokumentu alebo si ju vypýta a pridá ho do úložiska."""
         if not argument:
             argument = self.session.prompt("Cesta k dokumentu: ").strip()
         if not argument:
@@ -144,6 +155,7 @@ class AssistantCLI:
         )
 
     def _files(self) -> None:
+        """Zobrazí dokumenty a voliteľne vyžiada potvrdený výber na zmazanie."""
         records = self.documents.list()
         if not records:
             self.console.print("[dim]Nie sú uložené žiadne dokumenty. Použite /add cesta.[/dim]")
@@ -177,6 +189,7 @@ class AssistantCLI:
                 self._delete(document_id)
 
     def _delete(self, argument: str) -> None:
+        """Prijme ID dokumentu a odstráni súbor aj jeho vektory."""
         if not argument:
             raise ValueError("Použitie: /delete ID alebo vyberte dokument cez /files.")
         records = self.documents.list()
@@ -187,6 +200,7 @@ class AssistantCLI:
         self.console.print(f"[green]✓[/green] Odstránené: {escape(record.filename)}")
 
     def _sources(self) -> None:
+        """Bez vstupu zobrazí citácie poslednej odpovede alebo dôvod abstencie."""
         if self.last_answer is None:
             self.console.print("[dim]Zatiaľ nie je dostupná žiadna odpoveď.[/dim]")
             return
@@ -204,6 +218,7 @@ class AssistantCLI:
         self.console.print(table)
 
     def _metrics(self) -> None:
+        """Bez vstupu zobrazí agregované metriky aktuálneho tenantu."""
         value = self.metrics.summary(tenant_id=self.settings.tenant_id)
         table = Table(title="Prevádzkové metriky", box=box.ROUNDED)
         table.add_column("Otázky", justify="right")
@@ -222,17 +237,20 @@ class AssistantCLI:
         self.console.print(table)
 
     def _feedback(self, value: int, note: str) -> None:
+        """Prijme hodnotenie ±1 a poznámku; uloží ich k poslednej odpovedi."""
         if not self.last_interaction_id:
             raise ValueError("Najprv položte otázku.")
         self.metrics.feedback(self.last_interaction_id, value, note)
         self.console.print("[green]✓[/green] Ďakujem, hodnotenie bolo uložené.")
 
     def _status(self) -> None:
+        """Bez vstupu zobrazí modely, počet dokumentov a konfiguráciu fallbacku."""
         self.console.print(
             Panel.fit(
                 f"Dokumenty: [cyan]{len(self.documents.list())}[/cyan]\n"
                 f"Embedding: [cyan]{escape(self.settings.embedding_provider)}[/cyan]\n"
                 f"RAG model: [cyan]{escape(self.settings.deepseek_model)}[/cyan]\n"
+                f"Verifikátor: [cyan]{escape(self.settings.typesafe_model)}[/cyan]\n"
                 f"Web model: [cyan]{escape(self.settings.openai_web_model)}[/cyan]\n"
                 f"Web fallback: [cyan]{'zapnutý' if self.settings.web_search_enabled else 'vypnutý'}[/cyan]\n"
                 f"Tenant: [cyan]{escape(self.settings.tenant_id)}[/cyan]",
@@ -242,6 +260,7 @@ class AssistantCLI:
         )
 
     def _help(self) -> None:
+        """Bez vstupu zobrazí tabuľku dostupných chatových príkazov."""
         commands = [
             ("/add CESTA", "pridá, skopíruje a zaindexuje dokument"),
             ("/files", "zobrazí dokumenty a umožní interaktívne mazanie"),
@@ -262,6 +281,7 @@ class AssistantCLI:
         self.console.print(table)
 
     def _banner(self) -> None:
+        """Bez vstupu vykreslí úvodný panel a krátku nápovedu."""
         self.console.print(
             Panel.fit(
                 "[bold]DOC·AI[/bold]\n[dim]Odpovede z dokumentov s overenými citáciami[/dim]",
@@ -272,12 +292,15 @@ class AssistantCLI:
         self.console.print("[dim]Napíšte otázku alebo /help. Ukončenie: /exit[/dim]\n")
 
     def _error(self, message: str) -> None:
+        """Prijme text chyby a zobrazí bezpečný červený panel."""
         self.console.print(Panel(escape(message), title="Chyba", border_style="red"))
 
 
 def build_cli(settings: Settings, console: Console) -> AssistantCLI:
+    """Prijme nastavenia a konzolu; prepojí adaptéry a vráti hotové CLI."""
+    gate = ModelCallGate()
     if settings.embedding_provider == "openai":
-        embeddings = OpenAIEmbeddings(settings.openai_embedding_model)
+        embeddings = OpenAIEmbeddings(settings.openai_embedding_model, gate=gate)
     else:
         embeddings = LocalEmbeddings(settings.local_embedding_model)
     qdrant = QdrantVectorStore(
@@ -295,11 +318,22 @@ def build_cli(settings: Settings, console: Console) -> AssistantCLI:
     rag_model = DeepSeekRAGModel(
         model=settings.deepseek_model,
         base_url=settings.deepseek_base_url,
+        gate=gate,
     )
-    web = OpenAIWebSearch(settings.openai_web_model) if settings.web_search_enabled else None
+    verifier = JevVerifier(
+        model=settings.typesafe_model,
+        min_confidence=settings.min_jev_confidence,
+        gate=gate,
+    )
+    web = (
+        OpenAIWebSearch(settings.openai_web_model, gate=gate)
+        if settings.web_search_enabled
+        else None
+    )
     workflow = RAGWorkflow(
         retriever=qdrant,
         model=rag_model,
+        verifier=verifier,
         web_search=web,
         tenant_id=settings.tenant_id,
         top_k=settings.top_k,
@@ -317,10 +351,11 @@ def build_cli(settings: Settings, console: Console) -> AssistantCLI:
 
 
 def main() -> None:
+    """Načíta konfiguráciu a spustí chat; pri chybe ukončí proces s kódom 1."""
     console = Console()
     try:
         settings = Settings.load()
-        required_keys = ["DEEPSEEK_API_KEY"]
+        required_keys = ["DEEPSEEK_API_KEY", "TYPESAFE_API_KEY"]
         if settings.embedding_provider == "openai" or settings.web_search_enabled:
             required_keys.append("OPENAI_API_KEY")
         missing = [name for name in required_keys if not os.getenv(name)]
