@@ -173,18 +173,19 @@ class RAGWorkflow:
         """Prijme stav s verdiktom a vráti názov ďalšej povolenej vetvy grafu."""
         confidence = self._confidence(state)
         verification = state["verification"]
-        if (
-            verification.faithful
-            and verification.sufficient
-            and not verification.unsupported_claims
-            and confidence >= self.min_answer_confidence
-            and state["draft"].cited_chunk_ids
-        ):
+        unfaithful = (
+            not verification.faithful
+            or bool(verification.unsupported_claims)
+            or not state["draft"].cited_chunk_ids
+        )
+        insufficient = not verification.sufficient
+        if not unfaithful and not insufficient and confidence >= self.min_answer_confidence:
             return "answer"
-        if state["attempts"] < self.max_retrieval_attempts:
-            return "retry"
-        if self.web_search is not None:
-            return "web"
+        if unfaithful or insufficient:
+            if state["attempts"] < self.max_retrieval_attempts:
+                return "retry"
+            if self.web_search is not None:
+                return "web"
         return "abstain"
 
     def _finalize_documents(self, state: WorkflowState) -> WorkflowState:
@@ -238,6 +239,8 @@ class RAGWorkflow:
         """Prijme stav a voliteľný dôvod; vráti bezpečnú neodpoveď bez zdrojov."""
         verification = state.get("verification")
         detail = reason or (verification.reason if verification else "")
+        if not detail:
+            detail = "Interná odpoveď neprešla prahom istoty alebo nemá platné citácie."
         return {
             "answer": AssistantAnswer(
                 text=(

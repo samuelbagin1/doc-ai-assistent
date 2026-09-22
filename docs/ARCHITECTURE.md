@@ -89,17 +89,17 @@ sequenceDiagram
     D-->>G: odpoveď + atómové tvrdenia + chunk_id citácie
     G->>J: verify(otázka, tvrdenia, citované chunky)
     J-->>G: podpora tvrdení, úplnosť, relevancia
-    alt dôkazy sú dostatočné
+    alt podložené, dostatočné, s citáciami a confidence nad prahom
         G-->>C: odpoveď + dokumentové zdroje
-    else prvý pokus nestačí
+    else prvý pokus je insufficient alebo unfaithful
         G->>D: rewrite_query(chýbajúci dôkaz)
         D-->>G: doplňujúci query
         G->>Q: druhý similarity search
-    else interné pokusy vyčerpané a web povolený
+    else insufficient alebo unfaithful, pokusy vyčerpané a web povolený
         G->>W: Responses API + web_search
         W-->>G: odpoveď + URL citácie
         G-->>C: webová odpoveď alebo abstencia
-    else bez spoľahlivých zdrojov
+    else nízka confidence alebo pokusy vyčerpané bez webu
         G-->>C: abstencia + dôvod
     end
     C-->>U: odpoveď, confidence, čas, zdroje
@@ -112,17 +112,22 @@ stateDiagram-v2
     [*] --> Retrieve
     Retrieve --> Draft
     Draft --> Verify
-    Verify --> Answer: faithful && sufficient && confidence >= threshold
+    Verify --> Answer: faithful && sufficient && citations && confidence >= threshold
     Verify --> Rewrite: attempt < max_attempts && (insufficient || unfaithful)
     Rewrite --> Retrieve
     Verify --> WebSearch: attempts exhausted && web enabled && (insufficient || unfaithful)
-    Verify --> Abstain: attempts exhausted && web disabled && unfaithful
+    Verify --> Abstain: attempts exhausted && web disabled && (insufficient || unfaithful)
+    Verify --> Abstain: faithful && sufficient && citations && confidence < threshold
     WebSearch --> WebAnswer: citations && confidence >= threshold
     WebSearch --> Abstain: no citations / low confidence
     Answer --> [*]
     WebAnswer --> [*]
     Abstain --> [*]
 ```
+
+`unfaithful` v rozhodovacej logike zahŕňa aj nepodložené tvrdenia alebo chýbajúce
+citácie. Nízka kombinovaná `confidence` pri inak podloženej a dostatočnej odpovedi
+nevyvolá ďalší retrieval ani web; systém sa odpovede rovno zdrží.
 
 ## UML deployment diagram
 

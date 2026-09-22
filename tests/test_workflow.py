@@ -67,12 +67,15 @@ class FakeModel:
 class FakeVerifier:
     """Vráti vopred zvolený pozitívny alebo negatívny verifikačný verdikt."""
 
-    def __init__(self, valid=True):
-        """Prijme boolean určujúci úspešnosť nasledujúcej verifikácie."""
+    def __init__(self, valid=True, result=None):
+        """Prijme úspešnosť alebo vlastný verdikt pre konkrétny test grafu."""
         self.valid = valid
+        self.result = result
 
     def verify(self, question, draft, items):
         """Prijme otázku, návrh a dôkazy; vráti pripravené skóre a dôvod."""
+        if self.result is not None:
+            return self.result
         return Verification(
             faithful=self.valid,
             sufficient=self.valid,
@@ -85,8 +88,13 @@ class FakeVerifier:
 class FakeWeb:
     """Simuluje webový fallback s jedným externým citovaným zdrojom."""
 
+    def __init__(self):
+        """Vynuluje počet volaní webového fallbacku."""
+        self.calls = 0
+
     def search(self, question):
         """Prijme otázku a vráti pevnú webovú odpoveď s URL."""
+        self.calls += 1
         return AssistantAnswer(
             text="Webová odpoveď.",
             confidence=0.8,
@@ -148,3 +156,66 @@ def test_workflow_abstains_without_web() -> None:
     assert answer.abstained is True
     assert answer.route == "abstain"
     assert answer.sources == ()
+
+
+def test_low_confidence_abstains_without_retrieval_retry_or_web() -> None:
+    """Podložený návrh pod prahom istoty nespúšťa ďalší retrieval ani web."""
+    retriever = FakeRetriever([evidence(score=0.25)])
+    model = FakeModel()
+    web = FakeWeb()
+    verifier = FakeVerifier(
+        result=Verification(
+            faithful=True,
+            sufficient=True,
+            citation_coverage=1.0,
+            faithfulness=0.8,
+            answer_relevance=0.8,
+        )
+    )
+    workflow = RAGWorkflow(
+        retriever=retriever,
+        model=model,
+        verifier=verifier,
+        web_search=web,
+        tenant_id="local",
+    )
+
+    answer = workflow.ask("Aká je záruka?")
+
+    assert answer.abstained is True
+    assert answer.confidence < 0.72
+    assert "prahom istoty" in answer.reason
+    assert retriever.calls == 1
+    assert model.rewrites == 0
+    assert web.calls == 0
+
+
+def test_insufficient_answer_abstains_after_retries_when_web_disabled() -> None:
+    """Nedostatočný, hoci podložený návrh skončí bez webu po poslednom pokuse."""
+    retriever = FakeRetriever([evidence()])
+    model = FakeModel()
+    verifier = FakeVerifier(
+        result=Verification(
+            faithful=True,
+            sufficient=False,
+            citation_coverage=1.0,
+            faithfulness=0.9,
+            answer_relevance=0.9,
+            reason="Odpoveď nepokrýva celú otázku.",
+        )
+    )
+    workflow = RAGWorkflow(
+        retriever=retriever,
+        model=model,
+        verifier=verifier,
+        web_search=None,
+        tenant_id="local",
+        max_retrieval_attempts=2,
+    )
+
+    answer = workflow.ask("Otázka vyžadujúca ďalší dôkaz")
+
+    assert answer.abstained is True
+    assert answer.reason == "Odpoveď nepokrýva celú otázku."
+    assert retriever.calls == 2
+    assert model.rewrites == 1
