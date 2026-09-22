@@ -16,7 +16,7 @@ Každý príklad má obsahovať:
 }
 ```
 
-Aspoň 20–30 % otázok má byť zámerne nezodpovedateľných. Pridajte parafrázy,
+Aspoň 20–30 % otázok má byť zámerne nezodpovedateľných. Pridanie parafrázy,
 preklepy, multi-hop otázky, konfliktné verzie dokumentov, tabuľky, skeny, prompt
 injection, citlivé dokumenty iného tenantu a časovo premenlivé otázky.
 
@@ -32,7 +32,7 @@ injection, citlivé dokumenty iného tenantu a časovo premenlivé otázky.
 | [CoQA na Kaggle](https://www.kaggle.com/datasets/jeromeblanchet/conversational-question-answering-dataset-coqa) | konverzačný kontext | nadväzujúce otázky nad pasážou |
 | [SubjQA na Kaggle](https://www.kaggle.com/datasets/arashnic/subjqa-question-answering-dataset) | subjektívne/nezodpovedateľné otázky | test odmietnutia a rozdielu fakt verzus názor |
 
-Verejné datasety nestačia: finálne rozhodnutie musí používať vlastný doménový
+Verejné datasety rýchle overenie: finálne rozhodnutie musí používať vlastný doménový
 golden set, lebo jazyk, štruktúra dokumentov a riziko sa líšia.
 
 ## Metriky
@@ -40,7 +40,7 @@ golden set, lebo jazyk, štruktúra dokumentov a riziko sa líšia.
 ### Retrieval
 
 - Recall@5 a Hit@5 voči gold chunkom/stranám,
-- MRR a nDCG@5,
+- Mean Reciprocal Rank a normalized Discounted Cumulative Gain@5,
 - document recall a page recall,
 - podiel otázok bez výsledku nad minimálnym skóre.
 
@@ -73,7 +73,7 @@ golden set, lebo jazyk, štruktúra dokumentov a riziko sa líšia.
 
 ## Ablácie a optimalizácia
 
-Použite rovnaký zmrazený test set a porovnajte:
+Použitie rovnakého zmrazeného test setu a deaktivovanie rôznych uzlov (snažiť sa zrýchliť systém, znížiť náklady, ...):
 
 | Experiment | Zmena | Hypotéza |
 |---|---|---|
@@ -87,22 +87,14 @@ Použite rovnaký zmrazený test set a porovnajte:
 | A7 | chunk 800/1400/2200 | optimum kontextu, recall a ceny |
 | A8 | web fallback vypnutý | bezpečnosť a cena vs. coverage |
 
-Zmenu prijmite iba ak neprekročí bezpečnostný rozpočet: napr. unsupported claim
-rate sa nesmie zhoršiť o viac než 0,5 percentuálneho bodu. Reportujte bootstrap
-confidence intervals, nie iba jeden priemer.
 
 ## Prompt/model experimenty
 
-- verziujte prompt šablóny hashom,
-- pri GPT-5.6 Luna merajte kvalitu pri `reasoning_effort=low` oproti `medium`;
+- verziovanie prompt šablóny hashom,
+- pri GPT-5.6 Luna meranie kvality pri `reasoning_effort=low` oproti `medium`;
   Jev používa typované pravdepodobnostné verdikty,
-- každú kombináciu model + prompt + retriever spustite na identickom datasete,
-- LLM judge kalibrujte voči dvojito anotovanej ľudskej vzorke,
-- prahy Jev kalibrujte osobitne na slovenskom validačnom sete a sledujte
-  nesprávne potvrdené citácie aj zbytočné abstencie,
-- webový fallback merajte oddelene: v aktuálnej verzii neprechádza Jev kontrolou,
-- test set nevyužívajte na ladenie prahov; na to je validačná časť,
-- model snapshot pripnite, ak provider snapshot poskytuje.
+- každú kombináciu model + prompt + retriever,
+- prahy Jev kalibrovať osobitne na slovenskom validačnom sete a sledovať nesprávne potvrdené citácie aj zbytočné abstencie,
 
 ## Monitoring feedbacku a budúci ML triage
 
@@ -110,19 +102,6 @@ confidence intervals, nie iba jeden priemer.
 fronty spolu s nízkym confidence, web fallbackom, vysokou latenciou a vysokým
 počtom tokenov.
 
-Po nazbieraní a **ľudskom overení** dostatočného množstva príkladov možno vytrénovať
-jednoduchú logistickú regresiu alebo gradient boosting na predikciu priority review.
-Vstupy: retrieval skóre, rozdiel top1–top2, citation coverage, verifier skóre,
-route, retry count, latencia a tokeny. Text otázky/odpovede radšej neukladajte ako
-feature bez privacy posúdenia. Klasifikátor má iba triediť frontu, nikdy automaticky
-označiť faktickú odpoveď za správnu.
+Po nazbieraní a **ľudskom overení** dostatočného množstva príkladov možno vytrénovať jednoduchú logistickú regresiu alebo gradient boosting na predikciu priority review. Vstupy: retrieval skóre, rozdiel top1–top2, citation coverage, verifier skóre, route, retry count, latencia a tokeny. Text otázky/odpovede radšej neukladať ako feature bez privacy posúdenia/potvrdenia. 
 
-## Alerty
-
-- p95 latencia nad SLO počas 15 minút,
-- náhly nárast abstention alebo web fallback rate,
-- unsupported claim rate nad limit v canary evale,
-- tokeny/otázku alebo cena nad rozpočet,
-- Qdrant/LLM error rate nad 1 %,
-- negatívny feedback nad kalibrovanú baseline,
-- ingest bez chunkov alebo prudký nárast OCR chýb.
+V produkcii a so súhlasom spracovania údajov, vytvorenie modelu na triedenie ekosentimentu, kde by sa na základe interkacie poúživateľa (vyjadrovanie a použitie určitých slov) triedili chaty (RandomForestClassificator), na neskoršie vyhodnocovanie a úpravu systému.

@@ -2,14 +2,14 @@
 
 ## Threat model
 
-Chránime obsah dokumentov, API kľúče, identitu používateľa, integritu citácií a
+Chrániť obsah dokumentov, API kľúče, identitu používateľa, integritu citácií a
 externé systémy. Hlavné riziká sú prompt injection v dokumente, cross-tenant únik,
 SSRF cez všeobecný HTTP tool, neautorizované mazanie, exfiltrácia pri OCR/web volaní,
 škodlivé alebo komprimované dokumenty a citlivé dáta v logoch.
 
 ## Odporúčané oprávnenia
 
-Pre multi-user nasadenie použite OIDC/OAuth2 a tieto roly:
+Neviem presné využitie systému. Pri obyčajnom chatovaciom asistentovy na webe netreba používateľov, ale ak by systém bol využivaný ako internŷ nástroj alebo nástroj s využitím profilov, tak by bolo nasadené použitie OIDC/OAuth2 a tieto roly:
 
 | Rola | Čítať/QA | Importovať | Mazať vlastné | Mazať všetky | Meniť nástroje | Audit |
 |---|---:|---:|---:|---:|---:|---:|
@@ -27,11 +27,9 @@ Qdrant projekt pre každý tenant.
 
 - whitelist prípon aj kontrola skutočného formátu podľa signatúry,
 - limit veľkosti, počtu strán, rozbalených bajtov a času spracovania,
-- antivírus pred parsovaním v produkcii,
-- izolovaný worker bez sieťového prístupu pre lokálne parsovanie,
+- antivírus pred parsovaním v produkcii (check dokumentu, ako pri .docx dokumentoch s obsahujúcim skriptom),
 - šifrovanie disku a objektového úložiska,
 - kontrola duplicity cez SHA-256,
-- explicitný opt-in pred hosted OCR,
 - retention politika a overiteľné zmazanie súboru, vektorov, cache a záloh.
 
 ## Prompt injection
@@ -52,15 +50,16 @@ vyžiadať dokument iného tenantu.
 - samostatné service accounts a minimálne scopes,
 - rotácia, expirácia a audit použitia kľúčov,
 - outbound allowlist na konkrétne API hostnames,
-- TypeSafe AI je ďalší externý príjemca otázky, odpovede a citovaných chunkov;
-  pred použitím s citlivými dokumentmi posúďte prenos dát a zmluvné podmienky,
+- TypeSafe AI je ďalší externý príjemca otázky, odpovede a citovaných chunkov; pred použitím s citlivými dokumentmi posúďte prenos dát a zmluvné podmienky. T.z. využitie lokálneho riešenia Laya (Jev alternatíva), využitie lokálnych malých LLM modelov (ak to infraštruktúra a produkcia dovoľuje alebo ak sa narába s citlivými údajmi) a asi nevyhnutné využitie modelov na európskych serveroch (consent of processing data)
 - TLS verifikácia, timeouty, maximálna odpoveď a rate limiting,
 - PII redakcia pred externým API, ak to právny základ vyžaduje,
 - zákaz logovania promptov a dokumentov v defaultnom režime.
 
 ## Audit
 
-Zaznamenávajte kto, kedy a v akom tenante importoval, čítal alebo zmazal dokument,
+Pri nasadení s možnosťou využia používateľov.
+
+Zaznamenávanie kto, kedy a v akom tenante importoval, čítal alebo zmazal dokument,
 ktorý nástroj bol volaný, model/version, hash prompt šablóny a ID citovaných chunkov.
 Audit log má byť append-only a oddelený od aplikačných logov. Samotný text dokumentu
 do auditu nepatrí.

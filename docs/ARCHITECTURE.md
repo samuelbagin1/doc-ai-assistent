@@ -113,10 +113,10 @@ stateDiagram-v2
     Retrieve --> Draft
     Draft --> Verify
     Verify --> Answer: faithful && sufficient && confidence >= threshold
-    Verify --> Rewrite: attempt < max_attempts
+    Verify --> Rewrite: attempt < max_attempts && (insufficient || unfaithful)
     Rewrite --> Retrieve
-    Verify --> WebSearch: attempts exhausted && web enabled
-    Verify --> Abstain: attempts exhausted && web disabled
+    Verify --> WebSearch: attempts exhausted && web enabled && (insufficient || unfaithful)
+    Verify --> Abstain: attempts exhausted && web disabled && unfaithful
     WebSearch --> WebAnswer: citations && confidence >= threshold
     WebSearch --> Abstain: no citations / low confidence
     Answer --> [*]
@@ -182,7 +182,6 @@ vykonáva iba čítacie externé volania.
   deterministické.
 - **Oddelený generator a verifier:** GPT-5.6 Luna navrhuje odpoveď, Jev nezávisle
   klasifikuje citované tvrdenia a dostatočnosť dôkazov.
-- **Citácie cez ID:** model neprodukuje názov súboru ani stranu; iba vyberá ID a
-  aplikácia z neho vytvorí referenciu.
+- **Citácie cez ID:** model neprodukuje názov súboru ani stranu; iba vyberá ID a aplikácia z neho vytvorí referenciu - v produkcii zmena na doplňanie textu z dokumentu.
 - **Tenant filter pri každom čítaní a mazaní:** ochrana nesmie existovať iba v UI.
 - **Abstencia je úspešný výsledok:** nejde o exception ani neúspech aplikácie.

@@ -1,8 +1,4 @@
-# DOC·AI — citáciami podložený dokumentový asistent
-
-Terminálová Python aplikácia odpovedá z viacerých dokumentov, ku každej odpovedi
-prikladá zdroje, pri nedostatku dôkazov skúsi doplňujúci retrieval a voliteľne web.
-Ak ani potom nevie odpoveď podložiť, radšej sa odpovede zdrží.
+# Dokumentový AI asistent
 
 ## Čo riešenie obsahuje
 
@@ -12,7 +8,7 @@ Ak ani potom nevie odpoveď podložiť, radšej sa odpovede zdrží.
 - Qdrant s `k=5` a metadátami dokumentu, strany, sekcie, tenantu a chunku,
 - OpenAI `text-embedding-3-large` alebo lokálne `multilingual-e5-large`,
 - OpenAI GPT-5.6 Luna (`gpt-5.6-luna`) pre návrh odpovede a query rewrite,
-- Jev cez TypeSafe AI pre overenie citovaných tvrdení a úplnosti odpovede,
+- Jev cez TypeSafe AI pre overenie citovaných tvrdení a úplnosti odpovede, veľmi lacný a rýchly,
 - OpenAI GPT-5.6 Terra s natívnym `web_search` pre webový fallback,
 - LangGraph workflow s pevnou hranicou retrievalu a bezpečnou abstenciou,
 - zdieľaný semafor API volaní s dvoma retry po 10 a 60 sekundách,
@@ -92,7 +88,7 @@ Podrobné komponenty, sekvenčný, stavový a deployment diagram sú v
 8. Bez citácií alebo pod prahom istoty sa systém odpovede zdrží.
 
 Jev overuje iba dokumentovú vetvu. Webový fallback dnes vyžaduje URL citácie,
-ale jeho tvrdenia neprechádzajú Jev kontrolou; pri citlivých použitiach ho vypnite.
+ale jeho tvrdenia neprechádzajú Jev kontrolou.
 
 Confidence nie je modelom deklarované percento. Aktuálny vzorec je:
 
@@ -100,6 +96,15 @@ Confidence nie je modelom deklarované percento. Aktuálny vzorec je:
 0.25 × retrieval + 0.35 × faithfulness
 + 0.20 × answer relevance + 0.20 × citation coverage
 ```
+
+- `retrieval`: priemer skóre najviac troch najvyššie zoradených nájdených chunkov.
+  Každé skóre sa pred výpočtom obmedzí na rozsah 0–1; bez chunkov je výsledok 0.
+- `faithfulness`: najnižšia pravdepodobnosť, ktorú Jev pridelil možnosti `supports`
+  spomedzi všetkých tvrdení odpovede a ich citovaných dôkazov.
+- `answer relevance`: Jev skóre 0–1 vyjadrujúce, či odpoveď priamo reaguje na otázku.
+- `citation coverage`: počet tvrdení, pri ktorých Jev potvrdil podporu citovanými
+  dôkazmi s požadovanou istotou, delený celkovým počtom tvrdení. Nie je to počet
+  pripojených citácií.
 
 Pred produkciou treba váhy, `MIN_ANSWER_CONFIDENCE=0.72` a
 `MIN_JEV_CONFIDENCE=0.80` kalibrovať na doménovom validačnom datasete,
@@ -164,9 +169,6 @@ dve opakovania po 10 a 60 sekundách (prípadne dlhšie podľa `Retry-After`).
 Trvalo vyčerpaný kredit alebo kvóta sa neopakujú. Interné retry SDK sú vypnuté,
 aby nevznikali skryté pokusy navyše.
 
-Pri zmene embedding modelu použite novú Qdrant collection alebo vykonajte úplný
-reindex. Vektory s rôznou dimenziou ani geometriou sa nesmú miešať.
-
 ## Testy
 
 ```bash
@@ -183,5 +185,4 @@ Stratégia kvality, benchmarky a ablačné experimenty sú v
 
 Embedded Qdrant je vhodný pre lokálnu CLI aplikáciu. Multi-user produkcia má použiť
 Qdrant server s TLS, autentifikáciou, snapshotmi a samostatnými collection/tenant
-filtrami. SQLite metriky nahraďte OpenTelemetry + Prometheus/Grafana a citlivé
-prompty neposielajte do logov. API kľúče patria do secret managera, nikdy do Gitu.
+filtrami. SQLite metriky nahradiť OpenTelemetry + Prometheus/Grafana a citlivé prompty neposielať do logov. API kľúče patria do secret managera, nikdy do Gitu.
