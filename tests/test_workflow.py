@@ -158,12 +158,9 @@ def test_workflow_abstains_without_web() -> None:
     assert answer.sources == ()
 
 
-def test_low_confidence_abstains_without_retrieval_retry_or_web() -> None:
-    """Podložený návrh pod prahom istoty nespúšťa ďalší retrieval ani web."""
-    retriever = FakeRetriever([evidence(score=0.25)])
-    model = FakeModel()
-    web = FakeWeb()
-    verifier = FakeVerifier(
+def low_confidence_verifier() -> FakeVerifier:
+    """Vráti Jev verdikt, ktorý je podložený, no s retrievalom zostane pod prahom."""
+    return FakeVerifier(
         result=Verification(
             faithful=True,
             sufficient=True,
@@ -172,12 +169,40 @@ def test_low_confidence_abstains_without_retrieval_retry_or_web() -> None:
             answer_relevance=0.8,
         )
     )
+
+
+def test_low_confidence_retries_then_uses_web() -> None:
+    """Nízke confidence skúsi ďalší retrieval a po vyčerpaní pokusov web."""
+    retriever = FakeRetriever([evidence(score=0.25)])
+    model = FakeModel()
+    web = FakeWeb()
     workflow = RAGWorkflow(
         retriever=retriever,
         model=model,
-        verifier=verifier,
+        verifier=low_confidence_verifier(),
         web_search=web,
         tenant_id="local",
+    )
+
+    answer = workflow.ask("Aká je záruka?")
+
+    assert answer.route == "web"
+    assert retriever.calls == 2
+    assert model.rewrites == 1
+    assert web.calls == 1
+
+
+def test_low_confidence_abstains_after_retries_when_web_disabled() -> None:
+    """Nízke confidence po poslednom internom pokuse bez webu vedie k abstencii."""
+    retriever = FakeRetriever([evidence(score=0.25)])
+    model = FakeModel()
+    workflow = RAGWorkflow(
+        retriever=retriever,
+        model=model,
+        verifier=low_confidence_verifier(),
+        web_search=None,
+        tenant_id="local",
+        max_retrieval_attempts=2,
     )
 
     answer = workflow.ask("Aká je záruka?")
@@ -185,9 +210,8 @@ def test_low_confidence_abstains_without_retrieval_retry_or_web() -> None:
     assert answer.abstained is True
     assert answer.confidence < 0.72
     assert "prahom istoty" in answer.reason
-    assert retriever.calls == 1
-    assert model.rewrites == 0
-    assert web.calls == 0
+    assert retriever.calls == 2
+    assert model.rewrites == 1
 
 
 def test_insufficient_answer_abstains_after_retries_when_web_disabled() -> None:

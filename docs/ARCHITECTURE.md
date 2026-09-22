@@ -91,15 +91,15 @@ sequenceDiagram
     J-->>G: podpora tvrdení, úplnosť, relevancia
     alt podložené, dostatočné, s citáciami a confidence nad prahom
         G-->>C: odpoveď + dokumentové zdroje
-    else prvý pokus je insufficient alebo unfaithful
+    else zostáva pokus a výsledok je insufficient, unfaithful alebo pod prahom
         G->>D: rewrite_query(chýbajúci dôkaz)
         D-->>G: doplňujúci query
         G->>Q: druhý similarity search
-    else insufficient alebo unfaithful, pokusy vyčerpané a web povolený
+    else pokusy vyčerpané, výsledok neprešiel a web je povolený
         G->>W: Responses API + web_search
         W-->>G: odpoveď + URL citácie
         G-->>C: webová odpoveď alebo abstencia
-    else nízka confidence alebo pokusy vyčerpané bez webu
+    else výsledok neprešiel, pokusy sú vyčerpané a web je vypnutý
         G-->>C: abstencia + dôvod
     end
     C-->>U: odpoveď, confidence, čas, zdroje
@@ -113,11 +113,10 @@ stateDiagram-v2
     Retrieve --> Draft
     Draft --> Verify
     Verify --> Answer: faithful && sufficient && citations && confidence >= threshold
-    Verify --> Rewrite: attempt < max_attempts && (insufficient || unfaithful)
+    Verify --> Rewrite: attempt < max_attempts && (insufficient || unfaithful || confidence < threshold)
     Rewrite --> Retrieve
-    Verify --> WebSearch: attempts exhausted && web enabled && (insufficient || unfaithful)
-    Verify --> Abstain: attempts exhausted && web disabled && (insufficient || unfaithful)
-    Verify --> Abstain: faithful && sufficient && citations && confidence < threshold
+    Verify --> WebSearch: attempts exhausted && web enabled && (insufficient || unfaithful || confidence < threshold)
+    Verify --> Abstain: attempts exhausted && web disabled && (insufficient || unfaithful || confidence < threshold)
     WebSearch --> WebAnswer: citations && confidence >= threshold
     WebSearch --> Abstain: no citations / low confidence
     Answer --> [*]
@@ -125,9 +124,21 @@ stateDiagram-v2
     Abstain --> [*]
 ```
 
-`unfaithful` v rozhodovacej logike zahŕňa aj nepodložené tvrdenia alebo chýbajúce
-citácie. Nízka kombinovaná `confidence` pri inak podloženej a dostatočnej odpovedi
-nevyvolá ďalší retrieval ani web; systém sa odpovede rovno zdrží.
+Význam podmienok hrán:
+
+- `faithful`: Jev potvrdil podporu všetkých tvrdení citovanými chunkmi a to, že
+  zoznam tvrdení pokrýva celú odpoveď. `unfaithful` zahŕňa aj nepodložené tvrdenie
+  alebo chýbajúce citácie.
+- `sufficient`: Jev posúdil, že odpoveď podľa dodaných dôkazov pokrýva celú otázku,
+  je relevantná a zároveň `faithful`. `insufficient` znamená nesplnenie tejto podmienky.
+- `citations`: návrh má aspoň jedno `chunk_id` a tvrdenia odkazujú na existujúce
+  nájdené chunky; samotná existencia citácie ešte nepreukazuje správnosť tvrdenia.
+- `confidence`: kombinované skóre 0–1 z retrievalu, Jev podpory tvrdení, relevantnosti
+  a podielu podporených tvrdení. Nie je to kalibrovaná pravdepodobnosť správnosti;
+  `threshold` je `MIN_ANSWER_CONFIDENCE` (predvolene `0.72`).
+
+Ak je interná odpoveď pod prahom istoty, systém skúsi ďalší retrieval. Po vyčerpaní
+pokusov použije povolený web; keď web povolený nie je, odpovede sa zdrží.
 
 ## UML deployment diagram
 

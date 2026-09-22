@@ -83,12 +83,12 @@ Podrobné komponenty, sekvenčný, stavový a deployment diagram sú v
 4. Jev posúdi vzťah každej citácie k tvrdeniu, úplnosť zoznamu tvrdení,
    dostatočnosť a relevanciu. Chýbajúce alebo neplatné citácie sa odmietnu bez API volania.
 5. Aplikácia vypočíta confidence z retrieval skóre a verifikačných metrík.
-6. Ak je odpoveď nedostatočná alebo nepodložená, model vytvorí doplňujúci query
-   a retrieval sa zopakuje, kým zostáva povolený pokus.
+6. Ak je odpoveď nedostatočná, nepodložená alebo má nízke `confidence`, model
+   vytvorí doplňujúci query a retrieval sa zopakuje, kým zostáva povolený pokus.
 7. Ak interné pokusy stále nestačia, nasleduje voliteľný webový fallback; bez neho
    sa systém odpovede zdrží.
-8. Ak sú interné dôkazy dostatočné a podložené, ale výsledné confidence je pod
-   prahom, systém sa zdrží odpovede bez ďalšieho retrievalu či webu.
+8. Odpoveď z dokumentov sa vráti len vtedy, keď prejde všetkými podmienkami
+   verifikácie a prahom istoty.
 
 Jev overuje iba dokumentovú vetvu. Webový fallback dnes vyžaduje URL citácie,
 ale jeho tvrdenia neprechádzajú Jev kontrolou.

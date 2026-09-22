@@ -179,13 +179,13 @@ class RAGWorkflow:
             or not state["draft"].cited_chunk_ids
         )
         insufficient = not verification.sufficient
-        if not unfaithful and not insufficient and confidence >= self.min_answer_confidence:
+        low_confidence = confidence < self.min_answer_confidence
+        if not (unfaithful or insufficient or low_confidence):
             return "answer"
-        if unfaithful or insufficient:
-            if state["attempts"] < self.max_retrieval_attempts:
-                return "retry"
-            if self.web_search is not None:
-                return "web"
+        if state["attempts"] < self.max_retrieval_attempts:
+            return "retry"
+        if self.web_search is not None:
+            return "web"
         return "abstain"
 
     def _finalize_documents(self, state: WorkflowState) -> WorkflowState:
