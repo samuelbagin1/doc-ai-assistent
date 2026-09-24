@@ -1,5 +1,14 @@
 # Dokumentový AI asistent
 
+## Use-case prostredie
+Prototyp je implementovaný pre use-case využitia LLM asistenta pre "citlivejšie" lokálne dokumenty, kde sa kladie dôraz na kvalitu odpovede (overenie).
+
+## Dokumentácia
+
+- [Architektúra](docs/ARCHITECTURE.md)
+- [Evaluácia](docs/EVALUATION.md)
+- [Bezpečnosť](docs/SECURITY.md)
+
 ## Čo riešenie obsahuje
 
 - import PDF, DOC/DOCX, PPT/PPTX, XLS/XLSX, ODT/ODS/ODP, RTF, EPUB a CSV cez AnyDoc,
